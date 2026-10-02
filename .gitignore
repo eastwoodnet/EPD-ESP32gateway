@@ -1,0 +1,24 @@
+# PlatformIO Build & IDE
+.pio/
+.vscode/
+.idea/
+
+# Python Virtual Environments & Bytecode
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+server/venv/
+venv/
+.venv/
+
+# Dynamic Server Data & Photos (Keep directory structure)
+server/data/photos/*
+!server/data/photos/.gitkeep
+server/fonts/*
+!server/fonts/.gitkeep
+
+# System & Logs
+*.log
+.DS_Store
+*.swp
