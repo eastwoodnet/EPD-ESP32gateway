@@ -1,0 +1,23 @@
+{
+  "rules": [
+    {
+      "id": "rule_morning_photo",
+      "name": "白天相册轮播",
+      "start": "08:30",
+      "end": "22:30",
+      "mode": "photo_album",
+      "config": {
+        "rotate_interval_min": 60
+      }
+    },
+    {
+      "id": "rule_night_sleep",
+      "name": "夜间休眠免打扰",
+      "start": "22:30",
+      "end": "08:30",
+      "mode": "sleep_dnd",
+      "config": {}
+    }
+  ],
+  "fallback_mode": "photo_album"
+}
