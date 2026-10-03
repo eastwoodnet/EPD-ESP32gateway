@@ -22,7 +22,7 @@ TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(os.path.join(DATA_DIR, "photos"), exist_ok=True)
 
-app = FastAPI(title="EPD Server", description="墨水屏数据中继服务端")
+app = FastAPI(title="EPD-ESP32gateway Server", description="墨水屏数据中继服务端")
 
 # 挂载静态资源与模板
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

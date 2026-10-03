@@ -1,4 +1,4 @@
-# 墨水屏数据中继服务端 (EPD Server)
+# EPD-ESP32gateway 中继服务端 (EPD Server)
 
 本项目为 ESP32 墨水屏网关的局域网中继服务端。负责管理电子相册（3 卡槽轮播）、即时便签插播（支持手机快捷指令/HTTP 推送）、24 小时分时段自定义排程调度，并将内容渲染转换为墨水屏专用的点阵二进制流（`screen.bin`）。
 
@@ -43,7 +43,8 @@ cd server
 
 # 1. 创建虚拟环境 (可选但推荐)
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate       # Windows PowerShell 运行: .\venv\Scripts\Activate.ps1
+                               # Windows CMD 运行: venv\Scripts\activate.bat
 
 # 2. 安装依赖
 pip install -r requirements.txt
