@@ -29,9 +29,12 @@ public:
     bool clearScreen(const String& macAddress);
     
     // 切换墨水屏显示模式并同步时间 (1=日历模式, 2=时钟模式)
-    bool setCalendarMode(const String& macAddress, uint32_t timestamp = 0, int8_t timezone = 8);
-    bool setClockMode(const String& macAddress, uint32_t timestamp = 0, int8_t timezone = 8);
-    bool setDisplayModeAndTime(const String& macAddress, uint32_t timestamp, int8_t timezone, uint8_t mode);
+    bool setCalendarMode(const String& macAddress, uint32_t timestamp = 0, int8_t timezone = 8,
+                         std::function<void(int percent, const String& status)> progressCb = nullptr);
+    bool setClockMode(const String& macAddress, uint32_t timestamp = 0, int8_t timezone = 8,
+                      std::function<void(int percent, const String& status)> progressCb = nullptr);
+    bool setDisplayModeAndTime(const String& macAddress, uint32_t timestamp, int8_t timezone, uint8_t mode,
+                               std::function<void(int percent, const String& status)> progressCb = nullptr);
 
     // 发送墨水屏内置测试图案 (按配置的尺寸与颜色自适应生成)
     bool sendTestPattern(const String& macAddress, uint16_t width = 400, uint16_t height = 300, uint8_t colors = 3,

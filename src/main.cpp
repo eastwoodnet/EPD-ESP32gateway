@@ -258,12 +258,11 @@ void handleSerialCommands() {
         if (cfg.ble_mac.length() == 0) {
             Serial.println("[Error] 未绑定墨水屏，请先执行 bind <MAC>");
         } else {
-            time_t now;
-            time(&now);
-            uint32_t ts = (now > 1600000000) ? (uint32_t)now : 0;
             Serial.printf("[BLE] 开始向 %s 切换至日历模式 (农历/节气)...\n", cfg.ble_mac.c_str());
             DisplayUI::getInstance().showToast("切换至日历模式...", 0x0596);
-            if (BleEpdClient::getInstance().setCalendarMode(cfg.ble_mac, ts, 8)) {
+            if (BleEpdClient::getInstance().setCalendarMode(cfg.ble_mac, 0, 8, [](int pct, const String& msg) {
+                DisplayUI::getInstance().showProgress(pct, msg);
+            })) {
                 cfg.last_sync_status = "已切至日历模式";
                 ConfigManager::getInstance().save();
                 Serial.println("[BLE] 墨水屏日历模式切换成功！");
@@ -276,12 +275,11 @@ void handleSerialCommands() {
         if (cfg.ble_mac.length() == 0) {
             Serial.println("[Error] 未绑定墨水屏，请先执行 bind <MAC>");
         } else {
-            time_t now;
-            time(&now);
-            uint32_t ts = (now > 1600000000) ? (uint32_t)now : 0;
             Serial.printf("[BLE] 开始向 %s 切换至时钟模式...\n", cfg.ble_mac.c_str());
             DisplayUI::getInstance().showToast("切换至时钟模式...", 0x0284);
-            if (BleEpdClient::getInstance().setClockMode(cfg.ble_mac, ts, 8)) {
+            if (BleEpdClient::getInstance().setClockMode(cfg.ble_mac, 0, 8, [](int pct, const String& msg) {
+                DisplayUI::getInstance().showProgress(pct, msg);
+            })) {
                 cfg.last_sync_status = "已切至时钟模式";
                 ConfigManager::getInstance().save();
                 Serial.println("[BLE] 墨水屏时钟模式切换成功！");
@@ -348,7 +346,14 @@ void handleSerialCommands() {
         startApMode();
     } else if (cmd == "status") {
         AppConfig& cfg = ConfigManager::getInstance().config;
-        Serial.printf("当前状态:\n  WiFi: %s (%s)\n  IP: %s (模式: %s)\n  mDNS: http://%s.local\n  BLE 设备: %s (%s)\n  屏幕规格: %s (%dx%d, %d色)\n  Server: %s\n  Interval: %d min\n  Last Status: %s\n",
+        time_t now = time(nullptr);
+        struct tm ti;
+        localtime_r(&now, &ti);
+        char timeBuf[32];
+        strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", &ti);
+
+        Serial.printf("当前状态:\n  系统时间: %s (ts=%u%s)\n  WiFi: %s (%s)\n  IP: %s (模式: %s)\n  mDNS: http://%s.local\n  BLE 设备: %s (%s)\n  屏幕规格: %s (%dx%d, %d色)\n  Server: %s\n  Interval: %d min\n  Last Status: %s\n",
+                      timeBuf, (uint32_t)now, now > 1700000000 ? ", NTP已校准" : ", 未校准",
                       cfg.wifi_ssid.c_str(), WiFi.isConnected() ? "已连接" : "未连接",
                       isApMode ? WiFi.softAPIP().toString().c_str() : WiFi.localIP().toString().c_str(),
                       isApMode ? "AP" : "STA",

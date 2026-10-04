@@ -2,6 +2,7 @@
 #include "config.h"
 #include "config_manager.h"
 #include "ble_epd_client.h"
+#include "display_ui.h"
 #include <WiFi.h>
 #include <ArduinoJson.h>
 
@@ -606,11 +607,15 @@ void WebPortal::handleApiBleCalendar() {
         if (doc["timezone"].is<int8_t>()) tz = doc["timezone"].as<int8_t>();
     }
 
-    bool ok = BleEpdClient::getInstance().setCalendarMode(cfg.ble_mac, ts, tz);
+    DisplayUI::getInstance().showToast("切换至日历模式...", 0x0596);
+    bool ok = BleEpdClient::getInstance().setCalendarMode(cfg.ble_mac, ts, tz, [](int pct, const String& msg) {
+        DisplayUI::getInstance().showProgress(pct, msg);
+    });
+
     if (ok) {
         cfg.last_sync_status = "已切至日历模式";
         ConfigManager::getInstance().save();
-        server.send(200, "application/json", "{\"status\":\"ok\",\"msg\":\"日历模式已切换！墨水屏正在刷新农历与月历\"}");
+        server.send(200, "application/json", "{\"status\":\"ok\",\"msg\":\"日历模式已切换！时间已校准且墨水屏已完成全刷\"}");
     } else {
         server.send(500, "application/json", "{\"error\":\"日历模式切换失败，请检查墨水屏状态\"}");
     }
@@ -632,11 +637,15 @@ void WebPortal::handleApiBleClock() {
         if (doc["timezone"].is<int8_t>()) tz = doc["timezone"].as<int8_t>();
     }
 
-    bool ok = BleEpdClient::getInstance().setClockMode(cfg.ble_mac, ts, tz);
+    DisplayUI::getInstance().showToast("切换至时钟模式...", 0x0284);
+    bool ok = BleEpdClient::getInstance().setClockMode(cfg.ble_mac, ts, tz, [](int pct, const String& msg) {
+        DisplayUI::getInstance().showProgress(pct, msg);
+    });
+
     if (ok) {
         cfg.last_sync_status = "已切至时钟模式";
         ConfigManager::getInstance().save();
-        server.send(200, "application/json", "{\"status\":\"ok\",\"msg\":\"时钟模式已切换！墨水屏正在刷新\"}");
+        server.send(200, "application/json", "{\"status\":\"ok\",\"msg\":\"时钟模式已切换！时间已校准且墨水屏已完成全刷\"}");
     } else {
         server.send(500, "application/json", "{\"error\":\"时钟模式切换失败，请检查墨水屏状态\"}");
     }
