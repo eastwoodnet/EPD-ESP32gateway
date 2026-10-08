@@ -201,7 +201,11 @@ void performSync() {
         delay(1500);
         esp_sleep_enable_timer_wakeup((uint64_t)cfg.refresh_interval * 60ULL * 1000000ULL);
         #ifdef PIN_BUTTON_1
-        esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BUTTON_1, 0); // 允许按键唤醒
+        #if SOC_PM_SUPPORT_EXT0_WAKEUP
+        esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BUTTON_1, 0); // 允许按键唤醒 (ESP32 / ESP32-S3)
+        #elif SOC_GPIO_SUPPORT_DEEP_SLEEP_WAKEUP
+        esp_deep_sleep_enable_gpio_wakeup(1ULL << PIN_BUTTON_1, ESP_GPIO_WAKEUP_GPIO_LOW); // 允许按键唤醒 (ESP32-C3)
+        #endif
         #endif
         esp_deep_sleep_start();
     }

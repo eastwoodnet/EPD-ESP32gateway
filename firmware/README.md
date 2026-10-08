@@ -1,10 +1,12 @@
 # EPD-ESP32gateway Precompiled Firmware / 预编译固件说明
 
-本目录提供已编译完成的 ESP32 墨水屏网关固件二进制文件，适用于 **LilyGO T-Display-S3** 开发板。
+本目录提供已编译完成的 ESP32 墨水屏网关固件二进制文件，适用于 **LilyGO T-Display-S3** 开发板以及 **ESP32-C3** 纯网关无屏开发板（如 ESP32-C3-DevKitM-1、ESP32-C3 SuperMini 等）。
 
 ---
 
 ## 固件文件清单
+
+### 1. LilyGO T-Display-S3 (带板载彩色LCD仪表盘, 16MB Flash)
 
 | 文件名 | 烧录起始地址 (Offset) | 说明 |
 |---|---|---|
@@ -12,6 +14,12 @@
 | `bootloader.bin` | `0x0` | ESP32-S3 二级引导程序 |
 | `partitions.bin` | `0x8000` | 分区表文件 (16MB Flash 配置) |
 | `firmware.bin` | `0x10000` | 网关主应用程序固件 |
+
+### 2. ESP32-C3 极简网关 (RISC-V 架构, 纯网关无屏模式, 4MB Flash)
+
+| 文件名 | 烧录起始地址 (Offset) | 说明 |
+|---|---|---|
+| **`esp32_c3_full_0x0.bin`** | **`0x0`** | **ESP32-C3 完整合并固件（推荐，单文件一键烧录）** |
 
 ---
 
@@ -24,14 +32,19 @@
 pip install esptool
 ```
 
-将 LilyGO T-Display-S3 插入电脑 USB 口，确认串口号（Linux/macOS 通常为 `/dev/ttyACM0` 或 `/dev/ttyUSB0`，Windows 为 `COMx`）：
+将开发板插入电脑 USB 口，确认串口号（Linux/macOS 通常为 `/dev/ttyACM0` 或 `/dev/ttyUSB0`，Windows 为 `COMx`）：
 
-#### 1. 单文件快速烧录（推荐）：
+#### 1. ESP32-C3 一键烧录：
+```bash
+esptool --chip esp32c3 write-flash 0x0 esp32_c3_full_0x0.bin
+```
+
+#### 2. LilyGO T-Display-S3 一键烧录：
 ```bash
 esptool --chip esp32s3 write-flash 0x0 lilygo_t_display_s3_full_0x0.bin
 ```
 
-#### 2. 分段文件烧录：
+#### 3. LilyGO 分段文件烧录：
 ```bash
 esptool --chip esp32s3 write-flash \
   0x0 bootloader.bin \

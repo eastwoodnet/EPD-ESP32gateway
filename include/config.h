@@ -16,6 +16,10 @@
 #define PIN_LCD_POWER   15  // 必须输出高电平为LCD供电
 #define PIN_BUTTON_1    0   // Boot按键 (短按: 立即同步; 长按3秒: 重启并进入AP配网模式)
 #define PIN_BUTTON_2    14  // 备用按键
+#else
+#ifndef PIN_BUTTON_1
+#define PIN_BUTTON_1    9   // ESP32-C3 Boot 按键通常位于 GPIO 9
+#endif
 #endif
 
 // ==========================================
