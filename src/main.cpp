@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <time.h>
+#include <esp_wifi.h>
 #include "config.h"
 #include "config_manager.h"
 #include "ble_epd_client.h"
@@ -64,9 +65,26 @@ bool startStaMode() {
         return false;
     }
 
+    WiFi.disconnect(true);
+    delay(100);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(cfg.wifi_ssid.c_str(), cfg.wifi_pass.c_str());
-    Serial.printf("[WiFi] 正在连接: %s ...\n", cfg.wifi_ssid.c_str());
+
+    const char* passPtr = (cfg.wifi_pass.length() > 0) ? cfg.wifi_pass.c_str() : nullptr;
+    WiFi.begin(cfg.wifi_ssid.c_str(), passPtr);
+
+    // 针对隐藏 SSID / 开放网络优化：启用全信道主动探测
+    wifi_config_t conf;
+    if (esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK) {
+        conf.sta.scan_method = WIFI_ALL_CHANNEL_SCAN; // 全信道探测隐藏 SSID
+        conf.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+        if (!passPtr || passPtr[0] == '\0') {
+            conf.sta.threshold.authmode = WIFI_AUTH_OPEN;
+        }
+        esp_wifi_set_config(WIFI_IF_STA, &conf);
+    }
+
+    Serial.printf("[WiFi] 正在连接: %s (模式: %s) ...\n", 
+                  cfg.wifi_ssid.c_str(), passPtr ? "加密网络" : "开放/无密码");
     DisplayUI::getInstance().showConnecting(cfg.wifi_ssid);
 
     unsigned long start = millis();
@@ -331,20 +349,22 @@ void handleSerialCommands() {
     } else if (cmd == "sync") {
         syncRequested = true;
     } else if (cmd.startsWith("wifi ")) {
-        int sp1 = cmd.indexOf(' ');
-        int sp2 = cmd.indexOf(' ', sp1 + 1);
-        if (sp2 > 0) {
-            String ssid = cmd.substring(sp1 + 1, sp2);
-            String pass = cmd.substring(sp2 + 1);
-            ssid.trim(); pass.trim();
+        String args = cmd.substring(5);
+        args.trim();
+        int sp = args.indexOf(' ');
+        String ssid = (sp > 0) ? args.substring(0, sp) : args;
+        String pass = (sp > 0) ? args.substring(sp + 1) : "";
+        ssid.trim(); pass.trim();
+        if (ssid.length() > 0) {
             AppConfig& cfg = ConfigManager::getInstance().config;
             cfg.wifi_ssid = ssid;
             cfg.wifi_pass = pass;
             ConfigManager::getInstance().save();
-            Serial.printf("[Config] 已保存 WiFi: %s，正在连接...\n", ssid.c_str());
+            Serial.printf("[Config] 已保存 WiFi: %s (密码: %s)，正在连接...\n", 
+                          ssid.c_str(), pass.length() > 0 ? "已配置" : "无密码/开放网络");
             if (!startStaMode()) startApMode();
         } else {
-            Serial.println("格式: wifi <SSID> <PASSWORD>");
+            Serial.println("格式: wifi <SSID> [PASSWORD] (无密码则不填密码)");
         }
     } else if (cmd == "ap") {
         startApMode();
