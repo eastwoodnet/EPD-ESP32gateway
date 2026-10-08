@@ -401,26 +401,26 @@ bool BleEpdClient::setDisplayModeAndTime(const String& macAddress, uint32_t time
     pChar->writeValue(packet, 7, true);
     Serial.println("[BLE] 日历/时钟模式指令已发送，墨水屏开始进入后台图形渲染与屏幕刷新");
 
-    // 4. 关键修复 2: 保持蓝牙连接，等待墨水屏执行 DrawGUI 渲染与物理全刷完成 (约15秒)
+    // 4. 关键修复 2: 保持蓝牙连接，等待墨水屏执行 DrawGUI 渲染与物理全刷完成 (约18秒)
     // 严禁在 200ms 后立即调用 disconnect！
-    // 墨水屏固件在收到 0x20 后，后台 DrawGUI 绘图和物理波形全刷整整需要 12~16 秒。
-    // 如果 ESP32 在 200ms 内强行断开，墨水屏底层中断会执行 on_disconnect()，
+    // 墨水屏固件在收到 0x20 后，后台 DrawGUI 绘图和物理波形全刷整整需要 15~17 秒 (三色屏更久)。
+    // 如果 ESP32 过早断开，墨水屏底层中断会执行 on_disconnect()，
     // 强行将 SPI 引脚 Uninit 并关断电源，导致驱动死锁引发看门狗 WDT 复位，
     // 看门狗复位后墨水屏将以 timestamp=0 (1970年) 重新初始化！
-    Serial.println("[BLE] 正在保持蓝牙连接，等待墨水屏完成全屏物理刷新 (约15秒)...");
-    for (int i = 0; i < 15; i++) {
+    Serial.println("[BLE] 正在保持蓝牙连接，等待墨水屏完成全屏物理刷新 (安全等待18秒)...");
+    for (int i = 0; i < 18; i++) {
         delay(1000);
-        int pct = 45 + (int)((i + 1) * 3.5f);
-        if (progressCb && (i % 3 == 0 || i == 14)) {
-            progressCb(pct, String("墨水屏全刷中: ") + String(i + 1) + "/15s");
+        int pct = 45 + (int)((i + 1) * 3.0f);
+        if (progressCb && (i % 3 == 0 || i == 17)) {
+            progressCb(pct, String("墨水屏全刷中: ") + String(i + 1) + "/18s");
         }
     }
 
     // 5. 墨水屏全刷完成且进入安全休眠后，安全断开蓝牙
     pClient->disconnect();
     NimBLEDevice::deleteClient(pClient);
-    if (progressCb) progressCb(100, "日历模式切换与全刷完成！");
-    Serial.println("[BLE] 日历/时钟模式切换与全刷已圆满完成");
+    if (progressCb) progressCb(100, "模式切换与全屏刷新完成！");
+    Serial.println("[BLE] 模式切换与全刷已圆满完成");
     return true;
 }
 

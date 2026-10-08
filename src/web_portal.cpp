@@ -86,7 +86,7 @@ body{background:var(--bg);color:var(--text);padding:16px;display:flex;justify-co
       <h2>⚡ 快捷控制与测试</h2>
       <div class="btn-group">
         <button class="btn btn-success" onclick="setCalendarMode()">📅 切换至日历模式 (农历/节气)</button>
-        <button class="btn btn-cyan" onclick="setClockMode()">⏰ 切换至时钟模式</button>
+        <button class="btn btn-cyan" onclick="setClockMode()">⏰ 切换至时钟模式 (限双色屏)</button>
         <button class="btn" onclick="triggerSync()">⚡ 从服务器拉取并刷屏</button>
         <button class="btn btn-warn" onclick="testPattern()">🎨 发送内置测试图案</button>
         <button class="btn btn-sec" onclick="testClear()">🧹 清除屏幕 (白屏)</button>
@@ -106,7 +106,7 @@ body{background:var(--bg);color:var(--text);padding:16px;display:flex;justify-co
       <h2>🎛️ 墨水屏直控</h2>
       <div class="btn-group">
         <button class="btn btn-success" onclick="setCalendarMode()">📅 显示中国农历日历</button>
-        <button class="btn btn-cyan" onclick="setClockMode()">⏰ 显示实时时钟</button>
+        <button class="btn btn-cyan" onclick="setClockMode()">⏰ 显示实时时钟 (限双色屏)</button>
         <button class="btn btn-warn" onclick="testPattern()">🎨 刷新测试图案</button>
         <button class="btn btn-sec" onclick="testClear()">🧹 墨水屏全白清屏</button>
       </div>
@@ -338,6 +338,12 @@ function setCalendarMode(){
 }
 
 function setClockMode(){
+  const sc = (document.getElementById('cfg-screen') ? document.getElementById('cfg-screen').value : '') || '';
+  if(sc.indexOf('bwr') >= 0 || sc.indexOf('bwry') >= 0){
+    if(!confirm('⚠️ 警告：当前配置为三色/四色墨水屏！\n三色墨水屏硬件不支持局刷，每次刷新需全屏反转15秒以上；而时钟模式每分钟都会全刷一次，频繁全刷会导致墨水屏死锁、触发看门狗复位并退回1970年日历！\n官方固件原作者明确注明三色屏请勿开启时钟模式。\n\n是否仍然强制尝试？')){
+      return;
+    }
+  }
   showToast('正在发送时钟模式切换指令...');
   const ts = Math.floor(Date.now() / 1000);
   const tz = -(new Date().getTimezoneOffset() / 60);
