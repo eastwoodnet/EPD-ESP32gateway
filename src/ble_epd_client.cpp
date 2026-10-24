@@ -207,7 +207,8 @@ static bool sendChannel(NimBLERemoteCharacteristic* pChar,
 }
 
 bool BleEpdClient::pushImage(const String& macAddress, const uint8_t* data, size_t length,
-                            std::function<void(int percent, const String& status)> progressCb) {
+                            std::function<void(int percent, const String& status)> progressCb,
+                            uint8_t colors) {
     if (macAddress.length() == 0 || data == nullptr || length == 0) {
         if (progressCb) progressCb(0, "参数错误或数据为空");
         return false;
@@ -273,8 +274,11 @@ bool BleEpdClient::pushImage(const String& macAddress, const uint8_t* data, size
     size_t chunkSize = (mtu > 30) ? (mtu - 5) : 20;
     if (chunkSize > 240) chunkSize = 240;
 
-    // 自动判定是否为双通道 (黑白 + 红色, 例如 30000 字节对应 4.2寸三色)
-    bool isDualChannel = (length >= 20000 && length % 2 == 0);
+    // 双通道 (黑白 + 红色) 判定：
+    // 优先使用调用方提供的屏幕颜色数，避免纯靠数据长度猜测出错：
+    //   - 2.9"/2.13" 三色屏点阵不足 20000 字节，长度启发式会漏发红通道
+    //   - 7.5"/5.83" 黑白屏点阵超 20000 且为偶数，长度启发式会误拆通道
+    bool isDualChannel = (colors != 0) ? (colors >= 3) : (length >= 20000 && length % 2 == 0);
     size_t channelLen = isDualChannel ? (length / 2) : length;
 
     Serial.printf("[BLE] 数据模式: %s, 单通道大小: %d 字节, 单包: %d 字节\n",
@@ -479,7 +483,7 @@ bool BleEpdClient::sendTestPattern(const String& macAddress, uint16_t width, uin
         }
     }
 
-    bool res = pushImage(macAddress, buf, totalSize, progressCb);
+    bool res = pushImage(macAddress, buf, totalSize, progressCb, colors);
     free(buf);
     return res;
 }

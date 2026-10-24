@@ -1,6 +1,7 @@
 import time
 import os
 from datetime import datetime
+from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 
 # 寻找跨不同 Linux 发行版（Debian/Ubuntu/CentOS/Alpine/Arch）中可用的中文字体
@@ -200,13 +201,14 @@ def render_memo_image(title: str, text: str, sender: str, expire_at: float, widt
 
 def render_clock_image(width: int = 400, height: int = 300, info: str = "墨水屏数据中继服务") -> bytes:
     """
-    当相册未配置或处于兜底时钟模式时，渲染高雅的极简时钟与日历画面
+    当相册未配置或处于兜底时钟模式时，渲染极简日历画面。
+    刻意不渲染分钟级时间：墨水屏固件自带时钟模式负责走时，本图只需日期级精度，
+    否则 ETag 每分钟变化导致网关永远收不到 304，每次都全屏刷新。
     """
     img = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
     now = datetime.now()
-    time_str = now.strftime("%H:%M")
     date_str = now.strftime("%Y年%m月%d日")
     weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     weekday_str = weekdays[now.weekday()]
@@ -216,16 +218,38 @@ def render_clock_image(width: int = 400, height: int = 300, info: str = "墨水�
 
     # 头部标题
     font_sub = get_font(15)
-    draw.text((width // 2, 35), f"{date_str}  {weekday_str}", font=font_sub, fill=(0, 0, 0), anchor="mm")
-    draw.line([(50, 52), (width - 50, 52)], fill=(255, 0, 0), width=1)
+    draw.text((width // 2, 40), "墨水屏数据中继服务", font=font_sub, fill=(255, 0, 0), anchor="mm")
+    draw.line([(50, 58), (width - 50, 58)], fill=(255, 0, 0), width=1)
 
-    # 超大时间显示 (居中)
-    font_clock = get_font(72, bold=True)
-    draw.text((width // 2, 140), time_str, font=font_clock, fill=(0, 0, 0), anchor="mm")
+    # 超大日期显示 (居中, 一天内 ETag 恒定)
+    font_clock = get_font(36, bold=True)
+    draw.text((width // 2, 140), date_str, font=font_clock, fill=(0, 0, 0), anchor="mm")
+    font_week = get_font(28)
+    draw.text((width // 2, 190), weekday_str, font=font_week, fill=(0, 0, 0), anchor="mm")
 
     # 底部状态
     font_tip = get_font(13)
-    draw.text((width // 2, 230), "· 系统状态正常 · 定时同步中 ·", font=font_tip, fill=(255, 0, 0), anchor="mm")
-    draw.text((width // 2, 260), info, font=font_tip, fill=(0, 0, 0), anchor="mm")
+    draw.text((width // 2, 245), "· 系统状态正常 · 定时同步中 ·", font=font_tip, fill=(255, 0, 0), anchor="mm")
+    draw.text((width // 2, 270), clean_text(info), font=font_tip, fill=(0, 0, 0), anchor="mm")
 
     return image_to_raw(img, width, height)
+
+# 免打扰睡眠图为静态内容，进程内缓存一份，保证 ETag 恒定 (后续请求全部走 304)
+_sleep_image_cache: Optional[bytes] = None
+
+def render_sleep_image(width: int = 400, height: int = 300) -> bytes:
+    """
+    夜间免打扰模式的静态睡眠提示画面。
+    不含任何时间元素且结果常驻缓存，ETag 永久不变，网关只需全刷一次后持续 304 休眠。
+    """
+    global _sleep_image_cache
+    if _sleep_image_cache is None:
+        img = Image.new("RGB", (width, height), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([(8, 8), (width - 9, height - 9)], outline=(0, 0, 0), width=2)
+        font_main = get_font(30)
+        font_sub = get_font(15)
+        draw.text((width // 2, 130), clean_text("🌙 夜间免打扰模式中"), font=font_main, fill=(0, 0, 0), anchor="mm")
+        draw.text((width // 2, 190), "休眠时段结束后自动恢复常规排程", font=font_sub, fill=(255, 0, 0), anchor="mm")
+        _sleep_image_cache = image_to_raw(img, width, height)
+    return _sleep_image_cache

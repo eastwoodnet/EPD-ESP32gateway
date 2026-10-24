@@ -175,7 +175,7 @@ void performSync() {
             DisplayUI::getInstance().showProgress(30, "已下载图片，连接墨水屏...");
             bool ok = BleEpdClient::getInstance().pushImage(cfg.ble_mac, resp.data, resp.length, [](int pct, const String& st) {
                 DisplayUI::getInstance().showProgress(pct, st);
-            });
+            }, cfg.screen_colors);
 
             if (ok) {
                 Serial.println("[Sync] 墨水屏推送与刷新指令执行成功！");

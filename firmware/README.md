@@ -21,6 +21,12 @@
 |---|---|---|
 | **`esp32_c3_full_0x0.bin`** | **`0x0`** | **ESP32-C3 完整合并固件（推荐，单文件一键烧录）** |
 
+### 3. 果云 (Goouuu) ESP32-S3 / 标准通用 ESP32-S3 开发板 (纯网关无屏模式, 4MB/8MB/16MB Flash 通用)
+
+| 文件名 | 烧录起始地址 (Offset) | 说明 |
+|---|---|---|
+| **`goouuu_esp32_s3_full_0x0.bin`** | **`0x0`** | **Goouuu ESP32-S3 完整合并固件（推荐，单文件一键烧录）** |
+
 ---
 
 ## 烧录方法
@@ -34,12 +40,17 @@ pip install esptool
 
 将开发板插入电脑 USB 口，确认串口号（Linux/macOS 通常为 `/dev/ttyACM0` 或 `/dev/ttyUSB0`，Windows 为 `COMx`）：
 
-#### 1. ESP32-C3 一键烧录：
+#### 1. 果云 (Goouuu) ESP32-S3 一键烧录：
+```bash
+esptool --chip esp32s3 write-flash 0x0 goouuu_esp32_s3_full_0x0.bin
+```
+
+#### 2. ESP32-C3 一键烧录：
 ```bash
 esptool --chip esp32c3 write-flash 0x0 esp32_c3_full_0x0.bin
 ```
 
-#### 2. LilyGO T-Display-S3 一键烧录：
+#### 3. LilyGO T-Display-S3 一键烧录：
 ```bash
 esptool --chip esp32s3 write-flash 0x0 lilygo_t_display_s3_full_0x0.bin
 ```

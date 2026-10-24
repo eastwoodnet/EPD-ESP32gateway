@@ -1,4 +1,5 @@
 import os
+import time
 import hashlib
 from typing import Optional
 from fastapi import FastAPI, Request, Response, HTTPException, Body, Query, UploadFile, File
@@ -12,7 +13,7 @@ from src.memo_manager import MemoManager
 from src.album_manager import AlbumManager, TOTAL_SLOTS
 from src.settings_manager import SettingsManager
 from src.gateway_notifier import GatewayNotifier
-from src.renderer import render_clock_image
+from src.renderer import render_clock_image, render_sleep_image
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -62,8 +63,6 @@ async def get_screen_bin(request: Request):
     if memo_mgr.is_active():
         bin_data = memo_mgr.get_bin_data()
         memo_state = memo_mgr.get_state()
-        remain_sec = int(memo_state.expire_at - request.state.__dict__.get("time", 0))
-        import time
         remain_sec = max(30, int(memo_state.expire_at - time.time()))
         next_pull_sec = min(remain_sec, 3600)
 
@@ -82,9 +81,9 @@ async def get_screen_bin(request: Request):
                 bin_data = render_clock_image(info="相册卡槽未配置，请在 Web 后台上传照片")
 
         elif active_mode == "sleep_dnd":
-            # 免打扰模式：返回 304 让网关继续睡眠，或者保持最后画面
-            # 如果客户端带有 ETag，直接 304；否则给一张极简黑白睡眠提示
-            bin_data = render_clock_image(info="🌙 夜间免打扰模式中")
+            # 免打扰模式：返回一张静态睡眠提示图（ETag 恒定）。
+            # 网关首次拉取全刷一次，之后因 ETag 不变持续收到 304，不再打扰屏幕。
+            bin_data = render_sleep_image()
 
         elif active_mode == "clock":
             bin_data = render_clock_image()

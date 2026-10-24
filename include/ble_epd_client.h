@@ -23,9 +23,11 @@ public:
     bool isScanning();
     std::vector<DiscoveredDevice> getScanResults();
 
-    // 图像与控制传输 (自动支持单色或三色数据)
-    bool pushImage(const String& macAddress, const uint8_t* data, size_t length, 
-                   std::function<void(int percent, const String& status)> progressCb = nullptr);
+    // 图像与控制传输
+    // colors: 屏幕颜色数 (2=黑白单色, >=3=三色黑白红); 传 0 时退回按数据长度自动判定 (旧行为)
+    bool pushImage(const String& macAddress, const uint8_t* data, size_t length,
+                   std::function<void(int percent, const String& status)> progressCb = nullptr,
+                   uint8_t colors = 0);
     bool clearScreen(const String& macAddress);
     
     // 切换墨水屏显示模式并同步时间 (1=日历模式, 2=时钟模式)
