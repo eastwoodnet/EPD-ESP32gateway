@@ -494,8 +494,8 @@ function getModeLabel(mode) {
     photo_album: "🖼️ 相册轮播",
     calendar_todo: "📅 今日日程看板",
     weather_date: "⛅ 天气与日期",
-    clock: "📅 日期信息",
-    sleep_dnd: "🌙 夜间休眠免打扰"
+    clock: "📆 硬件原生万年历",
+    sleep_dnd: "🌙 免打扰休眠"
   };
   return map[mode] || mode;
 }
@@ -506,7 +506,7 @@ function getModeColor(mode) {
     calendar_todo: "#10b981", // 绿色
     weather_date: "#f59e0b",  // 橙色
     clock: "#8b5cf6",         // 紫色
-    sleep_dnd: "#334155"      // 暗灰
+    sleep_dnd: "#64748b"      // 板岩灰
   };
   return map[mode] || "#64748b";
 }
@@ -1158,14 +1158,14 @@ async function updateCalendarStatusDisplay() {
     const count = (data.events || []).length;
     const ut = data.update_time || "--:--";
     if (isMock) {
-      statusEl.innerHTML = `<span style="color: #f59e0b;">⚠️ 未配置 iCal URL，当前展示模拟日程 (共 ${count} 项，更新于 ${ut})</span>`;
+      statusEl.innerHTML = `<span style="color: #d97706;">⚠️ 未配置 iCal URL，当前展示模拟日程 (共 ${count} 项，更新于 ${ut})</span>`;
     } else if (data.status === "error" || data.stale) {
-      statusEl.innerHTML = `<span style="color: #ef4444;">⚠️ 同步异常或展示离线缓存 (共 ${count} 项): ${data.message || "连接受限"}</span>`;
+      statusEl.innerHTML = `<span style="color: #dc2626;">⚠️ 同步异常或展示离线缓存 (共 ${count} 项): ${data.message || "连接受限"}</span>`;
     } else {
-      statusEl.innerHTML = `<span style="color: #10b981;">✅ iCal 已同步 (${data.message || `找到 ${count} 项今日日程`}，更新于 ${ut})</span>`;
+      statusEl.innerHTML = `<span style="color: #059669;">✅ iCal 已同步 (${data.message || `找到 ${count} 项今日日程`}，更新于 ${ut})</span>`;
     }
   } catch (err) {
-    statusEl.innerHTML = `<span style="color: #ef4444;">❌ 获取日历状态失败: ${err.message}</span>`;
+    statusEl.innerHTML = `<span style="color: #dc2626;">❌ 获取日历状态失败: ${err.message}</span>`;
   }
 }
 
@@ -1273,6 +1273,27 @@ function initSettingsForm() {
       btn.textContent = "⚡ 立即触发网关同步 (测试刷新)";
     }
   });
+
+  // 硬件原生万年历指令触发按钮
+  const triggerNativeCalBtn = document.getElementById("triggerNativeCalBtn");
+  if (triggerNativeCalBtn) {
+    triggerNativeCalBtn.addEventListener("click", async () => {
+      triggerNativeCalBtn.disabled = true;
+      triggerNativeCalBtn.textContent = "正在下发万年历指令并等待全刷 (约18秒)...";
+      try {
+        const data = await requestJson("/api/device/calendar", { method: "POST" });
+        if (!data || data.status !== "ok") {
+          throw new Error(data && data.message ? data.message : "指令下发失败");
+        }
+        alert(data.message);
+      } catch (err) {
+        alert(`切换失败: ${err.message}`);
+      } finally {
+        triggerNativeCalBtn.disabled = false;
+        triggerNativeCalBtn.textContent = "📆 立即切换墨水屏至硬件原生万年历 (0x20 指令)";
+      }
+    });
+  }
 }
 
 async function loadSettings() {

@@ -4,26 +4,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EPD Backend - 墨水屏数据中继系统</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20261026_v4">
+  <link rel="stylesheet" href="/static/css/style.css?v=20261026_v5">
 </head>
 <body>
-  <div class="container">
-    <!-- 顶部状态栏 -->
-    <header>
+  <!-- 顶部状态栏 (OpenInk Slate-900 暗色顶栏) -->
+  <header>
+    <div class="header-inner">
       <div class="logo-group">
         <div class="logo-icon">📟</div>
         <div>
           <h1>EPD 墨水屏服务中心</h1>
-          <div class="subtitle">4.2寸三色 (400×300) · 自由排程与即时插播</div>
+          <div class="subtitle">4.2寸三色 (400×300) · 按需零通信排程与即时插播</div>
         </div>
       </div>
       <div style="display: flex; gap: 10px; align-items: center;">
         <span class="status-badge" id="activeModeBadge">当前生效: 载入中...</span>
         <span class="status-badge" id="nextPullBadge">下次刷新: --</span>
       </div>
-    </header>
+    </div>
+  </header>
 
-    <!-- 顶部功能标签 -->
+  <div class="container">
+    <!-- 顶部功能标签 (排程第一、相册第二、便签第三、设置第四) -->
     <div class="tabs">
       <button class="tab-btn active" data-tab="tab-schedule">⏰ 24H 自由排程</button>
       <button class="tab-btn" data-tab="tab-album">📷 相册工作台 (3卡槽)</button>
@@ -47,12 +49,12 @@
           <span>20:00</span>
           <span>24:00</span>
         </div>
-        <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+        <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">
           <span><span style="display:inline-block;width:10px;height:10px;background:#3b82f6;border-radius:2px;margin-right:4px;"></span>🖼️ 相册轮播</span>
-          <span><span style="display:inline-block;width:10px;height:10px;background:#10b981;border-radius:2px;margin-right:4px;"></span>📅 日程待办</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#10b981;border-radius:2px;margin-right:4px;"></span>📅 今日日程 (iCal)</span>
           <span><span style="display:inline-block;width:10px;height:10px;background:#f59e0b;border-radius:2px;margin-right:4px;"></span>⛅ 天气日期</span>
-          <span><span style="display:inline-block;width:10px;height:10px;background:#8b5cf6;border-radius:2px;margin-right:4px;"></span>📅 日期信息</span>
-          <span><span style="display:inline-block;width:10px;height:10px;background:#334155;border-radius:2px;margin-right:4px;"></span>🌙 夜间免打扰</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#8b5cf6;border-radius:2px;margin-right:4px;"></span>📆 硬件原生万年历</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#64748b;border-radius:2px;margin-right:4px;"></span>🌙 免打扰 (驻留原画面)</span>
         </div>
       </div>
 
@@ -74,8 +76,9 @@
             <select id="fallbackModeSelect">
               <option value="photo_album">🖼️ 相册轮播</option>
               <option value="weather_date">⛅ 天气与日期</option>
-              <option value="clock">📅 日期信息</option>
-              <option value="sleep_dnd">🌙 免打扰休眠</option>
+              <option value="calendar_todo">📅 今日日程 (iCal 看板)</option>
+              <option value="clock">📆 硬件原生万年历 (农历/节气)</option>
+              <option value="sleep_dnd">🌙 免打扰休眠 (保持原画面/零通信)</option>
             </select>
           </div>
         </div>
@@ -108,8 +111,8 @@
               <option value="photo_album">🖼️ 相册轮播 (Photo Album)</option>
               <option value="weather_date">⛅ 天气与日期 (wttr.in 实时气象)</option>
               <option value="calendar_todo">📅 今日日程 (iCal 同步看板)</option>
-              <option value="clock">📅 日期信息 (每日刷新)</option>
-              <option value="sleep_dnd">🌙 夜间免打扰 (Deep Sleep)</option>
+              <option value="clock">📆 硬件原生万年历 (nRF片上农历/节气)</option>
+              <option value="sleep_dnd">🌙 免打扰休眠 (保持原画面/零通信)</option>
             </select>
           </div>
 
@@ -179,14 +182,16 @@
           </div>
         </div>
 
-        <!-- 右侧画布仿真预览 -->
+        <!-- 右侧画布仿真预览 (OpenInk 拟物双层外壳) -->
         <div class="card">
           <div class="card-title">
             <span>🖥️ 4.2寸三色墨水屏物理仿真预览</span>
-            <span style="font-size: 12px; color: var(--text-muted);">400 × 300 像素</span>
+            <span style="font-size: 12px; color: var(--text-muted);">400 × 300 BWR</span>
           </div>
           <div class="canvas-wrapper">
-            <canvas id="previewCanvas" width="400" height="300"></canvas>
+            <div class="eink-bezel">
+              <canvas id="previewCanvas" width="400" height="300"></canvas>
+            </div>
             <div class="canvas-hint">仿真红/黑/白三色微米颗粒发色，所见即物理上屏效果</div>
           </div>
         </div>
@@ -206,12 +211,12 @@
     <!-- 标签 3: 桌面即时便签 -->
     <div id="tab-memo" class="tab-content">
       <!-- 当前生效便签 -->
-      <div id="activeMemoCard" class="card" style="display: none; border-color: var(--accent-red); background: rgba(239, 68, 68, 0.08);">
-        <div class="card-title" style="color: var(--accent-red);">
+      <div id="activeMemoCard" class="card" style="display: none; border-color: #fecaca; background: #fef2f2;">
+        <div class="card-title" style="color: var(--accent-red); border-bottom-color: #fee2e2;">
           <span id="activeMemoTitle">📌 正在置顶展示便签</span>
           <button class="btn btn-red" id="clearMemoBtn" style="padding: 4px 12px; font-size: 13px;">撤回并恢复排程</button>
         </div>
-        <div id="activeMemoText" style="font-size: 18px; font-weight: 600; margin-bottom: 10px; white-space: pre-wrap;"></div>
+        <div id="activeMemoText" style="font-size: 18px; font-weight: 600; margin-bottom: 10px; white-space: pre-wrap; color: var(--text-main);"></div>
         <div id="activeMemoExpire" style="font-size: 12px; color: var(--text-muted);"></div>
       </div>
 
@@ -338,12 +343,14 @@
             </div>
 
             <!-- 日历预览图展开区 -->
-            <div id="calendarPreviewBox" style="display: none; margin-top: 14px; text-align: center; background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
-              <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+            <div id="calendarPreviewBox" style="display: none; margin-top: 14px; text-align: center; background: var(--bg-secondary); padding: 16px; border-radius: 10px; border: 1px solid var(--border-color);">
+              <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
                 <span>400×300 墨水屏日程渲染预览:</span>
                 <button type="button" id="closeCalendarPreviewBtn" class="btn btn-outline" style="padding: 2px 8px; font-size: 11px;">收起</button>
               </div>
-              <img id="calendarPreviewImg" src="" alt="日历画面预览" style="width: 100%; max-width: 400px; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); image-rendering: pixelated; display: block; margin: 0 auto;">
+              <div class="eink-bezel" style="margin: 6px auto;">
+                <img id="calendarPreviewImg" src="" alt="日历画面预览" style="width: 100%; max-width: 400px; display: block; image-rendering: pixelated;">
+              </div>
             </div>
           </div>
 
@@ -352,18 +359,23 @@
             <div class="card-title">
               <span>📡 网关联动与调试</span>
             </div>
-            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-              点击下方按钮，测试服务端是否能够顺利通过局域网通知 ESP32 网关连接蓝牙并刷新墨水屏：
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+              按需控制 ESP32 网关同步当前排程画面，或直接指令墨水屏切入 nRF 片上硬件万年历：
             </p>
 
-            <button class="btn btn-outline" id="testGatewayBtn" style="width: 100%; margin-bottom: 16px;">
-              ⚡ 立即触发网关同步 (测试刷新)
-            </button>
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
+              <button class="btn btn-outline" id="testGatewayBtn" style="width: 100%;">
+                ⚡ 立即触发网关同步 (按当前排程刷新)
+              </button>
+              <button class="btn btn-secondary" id="triggerNativeCalBtn" style="width: 100%;">
+                📆 立即切换墨水屏至硬件原生万年历 (0x20 指令)
+              </button>
+            </div>
 
             <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
               <b>网关拉取接口:</b> <code>GET /screen.bin</code><br>
               <b>当前设备分辨率:</b> 400 × 300 (4.2寸 三色 BWR)<br>
-              <b>缓存机制:</b> 启用 ETag 与 304 Not Modified
+              <b>省电通信机制:</b> 免打扰与未变更画面直接返回 304 零蓝牙通信
             </div>
           </div>
         </div>
@@ -372,7 +384,7 @@
 
   </div>
 
-  <script src="/static/js/dithering.js?v=20261026_v4"></script>
-  <script src="/static/js/app.js?v=20261026_v4"></script>
+  <script src="/static/js/dithering.js?v=20261026_v5"></script>
+  <script src="/static/js/app.js?v=20261026_v5"></script>
 </body>
 </html>

@@ -245,22 +245,6 @@ def render_clock_image(width: int = 400, height: int = 300, info: str = "墨水�
 
     return image_to_raw(img, width, height)
 
-_sleep_image_cache = {}
-
-
-def render_sleep_image(width: int = 400, height: int = 300) -> bytes:
-    cache_key = (width, height)
-    if cache_key not in _sleep_image_cache:
-        img = Image.new("RGB", (width, height), (255, 255, 255))
-        draw = ImageDraw.Draw(img)
-        draw.rectangle([(8, 8), (width - 9, height - 9)], outline=(0, 0, 0), width=2)
-        font_main = get_font(30)
-        font_sub = get_font(15)
-        draw.text((width // 2, 130), clean_text("🌙 夜间免打扰模式中"), font=font_main, fill=(0, 0, 0), anchor="mm")
-        draw.text((width // 2, 190), "休眠时段结束后自动恢复常规排程", font=font_sub, fill=(255, 0, 0), anchor="mm")
-        _sleep_image_cache[cache_key] = image_to_raw(img, width, height)
-    return _sleep_image_cache[cache_key]
-
 
 _SHARP_CACHE = {}
 

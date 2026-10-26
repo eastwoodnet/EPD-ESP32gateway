@@ -22,7 +22,7 @@ from src.album_manager import FRAME_BYTES, AlbumManager
 from src.gateway_notifier import GatewayNotifier
 from src.memo_manager import MemoManager
 from src.models import MemoRequest, MemoState, ScheduleConfig, ServerSettings, validate_gateway_url
-from src.renderer import render_memo_image, render_sleep_image
+from src.renderer import render_memo_image
 from src.scheduler import Scheduler
 from src.settings_manager import SettingsManager
 from src.calendar_manager import CalendarManager
@@ -226,14 +226,6 @@ class AlbumTests(unittest.TestCase):
 
 
 class RendererTests(unittest.TestCase):
-    def test_sleep_cache_is_keyed_by_dimensions(self):
-        default = render_sleep_image()
-        taller = render_sleep_image(400, 301)
-        self.assertEqual(len(default), FRAME_BYTES)
-        self.assertEqual(len(taller), 30100)
-        self.assertNotEqual(default, taller)
-        self.assertIs(render_sleep_image(), default)
-
     def test_long_memo_fields_render_with_fixed_length(self):
         data = render_memo_image("title" * 80, "body\n" * 1000, "sender" * 80, 4102444800)
         self.assertEqual(len(data), FRAME_BYTES)
@@ -256,6 +248,7 @@ class FakeStreamResponse:
 
 class FakeAsyncClient:
     urls = []
+    json_payloads = []
 
     def __init__(self, *args, **kwargs):
         pass
@@ -266,8 +259,9 @@ class FakeAsyncClient:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    def stream(self, method, url):
+    def stream(self, method, url, json=None):
         self.urls.append(url)
+        self.json_payloads.append(json)
         return FakeStreamResponse()
 
 
@@ -275,10 +269,21 @@ class NotifierTests(unittest.IsolatedAsyncioTestCase):
     async def test_fixed_endpoint_and_single_flight(self):
         notifier = GatewayNotifier("http://192.168.1.70")
         FakeAsyncClient.urls = []
+        FakeAsyncClient.json_payloads = []
         with patch("src.gateway_notifier.httpx.AsyncClient", FakeAsyncClient):
             results = await asyncio.gather(notifier.trigger_sync(), notifier.trigger_sync())
         self.assertEqual(sorted(results), [False, True])
         self.assertEqual(FakeAsyncClient.urls, ["http://192.168.1.70/api/trigger"])
+
+    async def test_trigger_calendar_mode_sends_ble_calendar_payload(self):
+        notifier = GatewayNotifier("http://192.168.1.70")
+        FakeAsyncClient.urls = []
+        FakeAsyncClient.json_payloads = []
+        with patch("src.gateway_notifier.httpx.AsyncClient", FakeAsyncClient):
+            ok = await notifier.trigger_calendar_mode(timestamp=1730000000, timezone=8)
+        self.assertTrue(ok)
+        self.assertEqual(FakeAsyncClient.urls, ["http://192.168.1.70/api/ble/calendar"])
+        self.assertEqual(FakeAsyncClient.json_payloads, [{"timestamp": 1730000000, "timezone": 8}])
 
     async def test_invalid_url_is_rejected_before_network(self):
         notifier = GatewayNotifier()
@@ -297,6 +302,11 @@ class ApiTests(unittest.TestCase):
         main.calendar_mgr = CalendarManager(self.temp.name)
         main.notifier = Mock()
         main.notifier.trigger_sync = AsyncMock(return_value=True)
+        main.notifier.trigger_calendar_mode = AsyncMock(return_value=True)
+        main.notifier.trigger_calendar_mode_background = Mock()
+        main.notifier.trigger_sync_background = Mock()
+        main._last_dispatched_mode = None
+        main._last_calendar_sync_date = None
         self.render_patcher = patch("src.memo_manager.render_memo_image", return_value=b"\x00" * FRAME_BYTES)
         self.render_patcher.start()
         self.client = TestClient(main.app)
@@ -470,3 +480,70 @@ class ApiTests(unittest.TestCase):
         js_resp = self.client.get("/static/js/app.js")
         self.assertEqual(js_resp.status_code, 200)
         self.assertGreater(len(js_resp.content), 1000)
+
+    def test_sleep_dnd_zero_communication_and_native_calendar_mode(self):
+        # 1. 测试 sleep_dnd 模式：直接返回 304 Not Modified，不产生图像推送也不触发网关 BLE
+        dnd_sched = {
+            "rules": [
+                {
+                    "id": "rule_dnd",
+                    "name": "夜间免打扰",
+                    "start": "00:00",
+                    "end": "23:59",
+                    "mode": "sleep_dnd",
+                    "config": {}
+                }
+            ],
+            "fallback_mode": "sleep_dnd"
+        }
+        main.notifier.trigger_sync_background.reset_mock()
+        main.notifier.trigger_calendar_mode_background.reset_mock()
+        resp = self.client.post("/api/schedule", json=dnd_sched)
+        self.assertEqual(resp.status_code, 200)
+        # 保存免打扰排程时不应主动唤醒网关
+        main.notifier.trigger_sync_background.assert_not_called()
+        main.notifier.trigger_calendar_mode_background.assert_not_called()
+
+        screen_dnd = self.client.get("/screen.bin", headers={"If-None-Match": '"prev-etag"'})
+        self.assertEqual(screen_dnd.status_code, 304)
+        self.assertEqual(screen_dnd.headers["ETag"], '"prev-etag"')
+        self.assertIn("X-Next-Pull", screen_dnd.headers)
+
+        # 2. 测试 clock (硬件原生万年历) 模式：返回 304 Not Modified 并触发后台 BLE 万年历指令
+        clock_sched = {
+            "rules": [
+                {
+                    "id": "rule_clock",
+                    "name": "万年历模式",
+                    "start": "00:00",
+                    "end": "23:59",
+                    "mode": "clock",
+                    "config": {}
+                }
+            ],
+            "fallback_mode": "clock"
+        }
+        main.notifier.trigger_calendar_mode_background.reset_mock()
+        resp = self.client.post("/api/schedule", json=clock_sched)
+        self.assertEqual(resp.status_code, 200)
+        main.notifier.trigger_calendar_mode_background.assert_called_once()
+
+        # 重置状态模拟网关主动来拉取 /screen.bin
+        main._last_dispatched_mode = "sleep_dnd"
+        main.notifier.trigger_calendar_mode_background.reset_mock()
+        screen_clock = self.client.get("/screen.bin")
+        self.assertEqual(screen_clock.status_code, 304)
+        self.assertTrue(screen_clock.headers["ETag"].startswith('"native-calendar-'))
+        main.notifier.trigger_calendar_mode_background.assert_called_once()
+
+        # 同一天内再次拉取 /screen.bin 不重复下发 BLE 0x20 指令
+        main.notifier.trigger_calendar_mode_background.reset_mock()
+        screen_clock_again = self.client.get("/screen.bin")
+        self.assertEqual(screen_clock_again.status_code, 304)
+        main.notifier.trigger_calendar_mode_background.assert_not_called()
+
+        # 3. 测试手动触发硬件原生万年历接口 POST /api/device/calendar
+        manual_resp = self.client.post("/api/device/calendar")
+        self.assertEqual(manual_resp.status_code, 200)
+        self.assertEqual(manual_resp.json()["status"], "ok")
+        main.notifier.trigger_calendar_mode.assert_called_once()

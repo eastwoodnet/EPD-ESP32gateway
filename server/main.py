@@ -15,7 +15,7 @@ from src.memo_manager import MemoManager
 from src.album_manager import AlbumManager, FRAME_BYTES, TOTAL_SLOTS
 from src.settings_manager import SettingsManager
 from src.gateway_notifier import GatewayNotifier
-from src.renderer import render_clock_image, render_sleep_image, render_weather_image, render_calendar_image, raw_to_image
+from src.renderer import render_clock_image, render_weather_image, render_calendar_image, raw_to_image
 from src.weather_manager import WeatherManager
 from src.calendar_manager import CalendarManager
 
@@ -98,6 +98,10 @@ weather_mgr = WeatherManager(DATA_DIR, default_city=settings_mgr.settings.weathe
 calendar_mgr = CalendarManager(DATA_DIR, default_ical_url=settings_mgr.settings.calendar_ical_url)
 notifier = GatewayNotifier(settings_mgr.settings.gateway_url)
 
+# 排程状态机缓存：用于原生万年历模式按需触发与去重
+_last_dispatched_mode: Optional[str] = None
+_last_calendar_sync_date: Optional[str] = None
+
 
 def etag_matches(header_value: Optional[str], etag: str) -> bool:
     if not header_value:
@@ -116,6 +120,29 @@ def etag_matches(header_value: Optional[str], etag: str) -> bool:
 def validate_slot_id(slot_id: int) -> None:
     if not 1 <= slot_id <= TOTAL_SLOTS:
         raise HTTPException(status_code=422, detail=f"卡槽 ID 必须在 1~{TOTAL_SLOTS} 之间")
+
+
+def notify_gateway_for_current_state():
+    """根据当前生效模式按需通知网关（免打扰时不通信，万年历模式直接切硬件日历）"""
+    global _last_dispatched_mode, _last_calendar_sync_date
+    now_ts = time.time()
+    if memo_mgr.is_active(now_ts):
+        notifier.trigger_sync_background()
+        return
+
+    _, active_mode, _ = scheduler.get_current_rule(
+        fallback_rotate_min=settings_mgr.settings.rotate_interval_min
+    )
+    if active_mode == "sleep_dnd":
+        _last_dispatched_mode = "sleep_dnd"
+        return
+    if active_mode == "clock":
+        _last_dispatched_mode = "clock"
+        _last_calendar_sync_date = time.strftime("%Y-%m-%d", time.localtime(now_ts))
+        notifier.trigger_calendar_mode_background(timestamp=int(now_ts), timezone=8)
+        return
+
+    notifier.trigger_sync_background()
 
 
 def activate_memo(req: MemoRequest):
@@ -148,14 +175,20 @@ async def index_page(request: Request):
 async def get_screen_bin(request: Request):
     """
     ESP32 网关拉取墨水屏点阵的核心入口
-    优先级: 即时便签 (Priority Override) > 24h排程规则 > 兜底时钟
+    优先级: 即时便签 (Priority Override) > 24h排程规则
+    按需零冗余通信:
+      - sleep_dnd: 直接返回 304 Not Modified，保持屏幕最后一帧画面，网关不发起蓝牙连接
+      - clock: 首次切入时异步调用网关 /api/ble/calendar 切换 nRF 硬件原生万年历，并返回 304 阻断位图覆盖
     """
-    next_pull_sec = 1800  # 默认 30 分钟
+    global _last_dispatched_mode, _last_calendar_sync_date
+    next_pull_sec = 1800
     bin_data: Optional[bytes] = None
     now_ts = time.time()
+    client_etag = request.headers.get("if-none-match")
 
     # 1. 第一优先级: 即时便签插播
     if memo_mgr.is_active(now_ts):
+        _last_dispatched_mode = "memo"
         bin_data = memo_mgr.get_bin_data()
         memo_state = memo_mgr.get_state()
         remain_sec = max(30, int(memo_state.expire_at - now_ts))
@@ -168,22 +201,46 @@ async def get_screen_bin(request: Request):
         )
         next_pull_sec = sched_next_pull
 
+        if active_mode == "sleep_dnd":
+            # 真·静默免打扰: 不生成任何新画面，直接返回 304 驻留上一帧并休眠至下一时段
+            _last_dispatched_mode = "sleep_dnd"
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": client_etag if client_etag else '"dnd-keep"',
+                    "X-Next-Pull": str(next_pull_sec),
+                    "Cache-Control": "no-cache"
+                }
+            )
+
+        if active_mode == "clock":
+            # 硬件原生万年历模式: 仅在切入该模式或跨天时下发一次 0x20 硬件万年历指令
+            today_str = time.strftime("%Y-%m-%d", time.localtime(now_ts))
+            cal_etag = f'"native-calendar-{today_str}"'
+            if _last_dispatched_mode != "clock" or _last_calendar_sync_date != today_str:
+                _last_dispatched_mode = "clock"
+                _last_calendar_sync_date = today_str
+                notifier.trigger_calendar_mode_background(
+                    timestamp=int(now_ts), timezone=8, delay_sec=1.2
+                )
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": cal_etag,
+                    "X-Next-Pull": str(next_pull_sec),
+                    "Cache-Control": "no-cache"
+                }
+            )
+
+        _last_dispatched_mode = active_mode
+
         if active_mode == "photo_album":
             rotate_interval = active_rule.config.get("rotate_interval_min", 60) if active_rule else settings_mgr.settings.rotate_interval_min
-            slot_id, photo_bytes = album_mgr.get_active_photo_info(rotate_interval, now_ts)
+            _, photo_bytes = album_mgr.get_active_photo_info(rotate_interval, now_ts)
             if photo_bytes and len(photo_bytes) == FRAME_BYTES:
                 bin_data = photo_bytes
             else:
-                # 尚未上传照片，回退到优雅时钟画面提示用户
                 bin_data = render_clock_image(info="相册卡槽未配置，请在 Web 后台上传照片")
-
-        elif active_mode == "sleep_dnd":
-            # 免打扰模式：返回一张静态睡眠提示图（ETag 恒定）。
-            # 网关首次拉取全刷一次，之后因 ETag 不变持续收到 304，不再打扰屏幕。
-            bin_data = render_sleep_image()
-
-        elif active_mode == "clock":
-            bin_data = render_clock_image()
 
         elif active_mode == "weather_date":
             rule_city = active_rule.config.get("city") if active_rule else None
@@ -204,7 +261,6 @@ async def get_screen_bin(request: Request):
             )
 
         else:
-            # 未来扩展模式
             bin_data = render_clock_image(info=f"模式: {active_mode}")
 
     if not bin_data:
@@ -215,7 +271,6 @@ async def get_screen_bin(request: Request):
     etag = f'"{content_hash}"'
 
     # 检查客户端 If-None-Match 缓存头
-    client_etag = request.headers.get("if-none-match")
     if etag_matches(client_etag, etag):
         return Response(
             status_code=304,
@@ -276,7 +331,7 @@ async def clear_memo():
     手动撤回/清除当前便签
     """
     memo_mgr.clear_memo()
-    notifier.trigger_sync_background()
+    notify_gateway_for_current_state()
     return {"status": "ok", "message": "便签已清除，已通知网关恢复常规排程"}
 
 @app.get("/api/memo/status")
@@ -340,7 +395,7 @@ async def get_schedule():
 @app.post("/api/schedule")
 async def update_schedule(config: ScheduleConfig):
     scheduler.save_config(config)
-    notifier.trigger_sync_background()
+    notify_gateway_for_current_state()
     return {"status": "ok", "message": "排程配置已保存"}
 
 # ----------------- 系统设置与网关联动 API -----------------
@@ -358,7 +413,7 @@ async def update_settings(settings: ServerSettingsUpdate):
     if "calendar_ical_url" in changes:
         calendar_mgr.set_ical_url(updated.calendar_ical_url)
     if "weather_city" in changes or "rotate_interval_min" in changes or "calendar_ical_url" in changes:
-        notifier.trigger_sync_background()
+        notify_gateway_for_current_state()
     return {"status": "ok", "message": "系统设置已更新"}
 
 # ----------------- 气象信息 API (wttr.in) -----------------
@@ -426,6 +481,22 @@ async def manual_trigger_gateway():
     return {
         "status": "ok" if success else "failed",
         "message": "已成功向网关发送触发指令" if success else "网关连接超时或未响应"
+    }
+
+@app.post("/api/device/calendar")
+async def manual_trigger_native_calendar():
+    """
+    手动通知网关下发 0x20 指令，将墨水屏切换至 nRF 硬件原生万年历模式并校准时间
+    """
+    global _last_dispatched_mode, _last_calendar_sync_date
+    now_ts = int(time.time())
+    success = await notifier.trigger_calendar_mode(timestamp=now_ts, timezone=8)
+    if success:
+        _last_dispatched_mode = "clock"
+        _last_calendar_sync_date = time.strftime("%Y-%m-%d", time.localtime(now_ts))
+    return {
+        "status": "ok" if success else "failed",
+        "message": "已切换墨水屏至硬件原生万年历并完成时间校准" if success else "网关连接超时或墨水屏切换失败"
     }
 
 if __name__ == "__main__":
