@@ -72,21 +72,44 @@ std::vector<DiscoveredDevice> BleEpdClient::getScanResults() {
 }
 
 static bool connectDevice(NimBLEClient* pClient, const String& macAddress) {
-    // 1. 优先执行 2 秒主动扫描，直接获取广播实例连接（BLE 最稳健的连接方式）
+    pClient->setConnectTimeout(8);
+
     NimBLEScan* pScan = NimBLEDevice::getScan();
     pScan->setActiveScan(true);
-    NimBLEScanResults results = pScan->start(2, false);
 
-    for (int i = 0; i < results.getCount(); i++) {
-        NimBLEAdvertisedDevice dev = results.getDevice(i);
-        if (strcasecmp(dev.getAddress().toString().c_str(), macAddress.c_str()) == 0) {
-            Serial.printf("[BLE] 扫描命中目标设备: %s (RSSI:%d), 直接发起连接...\n", macAddress.c_str(), dev.getRSSI());
-            bool ok = pClient->connect(&dev);
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        Serial.printf("[BLE] 扫描探路 (第 %d/3 次，3 秒)... 目标 MAC: %s\n", attempt, macAddress.c_str());
+        NimBLEScanResults results = pScan->start(3, false);
+
+        NimBLEAdvertisedDevice* targetDev = nullptr;
+        for (int i = 0; i < results.getCount(); i++) {
+            NimBLEAdvertisedDevice dev = results.getDevice(i);
+            if (strcasecmp(dev.getAddress().toString().c_str(), macAddress.c_str()) == 0) {
+                targetDev = results.getDevice(dev.getAddress());
+                break;
+            }
+        }
+
+        if (targetDev != nullptr) {
+            int rssi = targetDev->getRSSI();
+            Serial.printf("[BLE] 命中目标墨水屏! RSSI: %d dBm%s，停止扫描并建立连接...\n", 
+                          rssi, rssi < -88 ? " (信号偏弱)" : " (信号良好)");
+            pScan->stop();
+            delay(100);
+
+            bool ok = pClient->connect(targetDev);
             pScan->clearResults();
-            return ok;
+            if (ok) {
+                Serial.println("[BLE] 蓝牙链路建立成功！");
+                return true;
+            }
+            Serial.printf("[BLE] 连接未完成 (错误码: %d)，重试...\n", pClient->getLastError());
+            delay(500);
+        } else {
+            pScan->clearResults();
+            if (attempt < 3) delay(400);
         }
     }
-    pScan->clearResults();
 
     // 2. 备选方案: 直接按地址类型发起连接
     uint8_t primaryType = BLE_ADDR_PUBLIC;
@@ -114,6 +137,7 @@ bool BleEpdClient::clearScreen(const String& macAddress) {
 
     Serial.printf("[BLE] 正在连接清屏设备: %s\n", macAddress.c_str());
     NimBLEClient* pClient = NimBLEDevice::createClient();
+    if (pClient == nullptr) return false;
     pClient->setConnectTimeout(8);
     if (!connectDevice(pClient, macAddress)) {
         Serial.println("[BLE] 连接失败");
@@ -136,11 +160,19 @@ bool BleEpdClient::clearScreen(const String& macAddress) {
     }
 
     uint8_t initCmd[1] = { EPD_CMD_INIT };
-    pChar->writeValue(initCmd, 1, true);
+    if (!pChar->writeValue(initCmd, 1, true) || !pClient->isConnected()) {
+        pClient->disconnect();
+        NimBLEDevice::deleteClient(pClient);
+        return false;
+    }
     delay(100);
 
     uint8_t clearCmd[1] = { EPD_CMD_CLEAR };
-    pChar->writeValue(clearCmd, 1, true);
+    if (!pChar->writeValue(clearCmd, 1, true)) {
+        pClient->disconnect();
+        NimBLEDevice::deleteClient(pClient);
+        return false;
+    }
     delay(200);
 
     pClient->disconnect();
@@ -153,7 +185,7 @@ bool BleEpdClient::clearScreen(const String& macAddress) {
 static bool sendChannel(NimBLERemoteCharacteristic* pChar, 
                         const uint8_t* channelData, size_t channelLen, 
                         bool isRedChannel, size_t chunkSize, 
-                        bool isLegacyProtocol,
+                        uint8_t fwVersion,
                         int startPct, int endPct,
                         std::function<void(int, const String&)> progressCb) {
     size_t totalChunks = (channelLen + chunkSize - 1) / chunkSize;
@@ -164,29 +196,27 @@ static bool sendChannel(NimBLERemoteCharacteristic* pChar,
         size_t currentChunkSize = ((offset + chunkSize) > channelLen) ? (channelLen - offset) : chunkSize;
 
         uint8_t flags;
-        if (isLegacyProtocol) {
-            // 传统协议 (v1.5 - v1.9，即盒马/汉朔等绝大多数现存固件如 0x18)
-            // 黑白通道: 首包 0x0F, 后续包 0xFF
-            // 红色通道: 首包 0x00, 后续包 0xF0
+        if (fwVersion >= 0x1A) {
+            // 新版固件 (v1.10+ / 0x1A及以上，EPD_service.c 采用位域解析):
+            //   bit 0: 0=黑白通道, 1=红色通道
+            //   bit 1: 1=首包 (begin, 复位驱动写入指针), 0=后续包
+            //   bit 2: 0=原始未压缩点阵, 1=RLE 压缩数据
+            flags = (isRedChannel ? 0x01 : 0x00) | ((i == 0) ? 0x02 : 0x00);
+        } else {
+            // 传统协议 (v1.5 - v1.9，如盒马/汉朔 4.2 寸固件 0x18，SSD16xx/UC81xx 采用高低半字节解析):
+            //   高 4 位 (MSB): 0x00=首包 (begin), 0xF0=后续包 (cont)
+            //   低 4 位 (LSB): 0x0F=黑白通道 (RAM1), 0x00=红色通道 (RAM2)
             if (!isRedChannel) {
                 flags = (i == 0) ? 0x0F : 0xFF;
             } else {
                 flags = (i == 0) ? 0x00 : 0xF0;
             }
-        } else {
-            // 新版固件 (v1.10+ / 0x1A及以上，支持 RLE 标志)
-            // bit 0: 0=黑白, 1=红
-            // bit 1: 1=首包 (begin), 0=后续包
-            // bit 2: 0=原始数据未压缩
-            flags = (isRedChannel ? 0x01 : 0x00) | ((i == 0) ? 0x02 : 0x00);
         }
 
         packet[0] = EPD_CMD_WRITE_IMAGE;
         packet[1] = flags;
         memcpy(&packet[2], &channelData[offset], currentChunkSize);
 
-        // 240 字节大包在 15000 字节下总共只有 63 包
-        // 使用 withResponse=true 确保每包均有链路层确认，彻底杜绝控制器 TX 队列溢出或丢包
         bool ok = pChar->writeValue(packet, currentChunkSize + 2, true);
         if (!ok) {
             delay(50);
@@ -197,6 +227,8 @@ static bool sendChannel(NimBLERemoteCharacteristic* pChar,
             Serial.printf("[BLE] 写入分包 %d (%s) 失败\n", i, isRedChannel ? "Red" : "BW");
             return false;
         }
+
+        delay(8); // 注入传输延时节奏，防止连续大吞吐压垮从机缓冲区
 
         if (progressCb && (i % 6 == 0 || i == totalChunks - 1)) {
             int pct = startPct + (int)(((float)(i + 1) / totalChunks) * (endPct - startPct));
@@ -209,8 +241,8 @@ static bool sendChannel(NimBLERemoteCharacteristic* pChar,
 bool BleEpdClient::pushImage(const String& macAddress, const uint8_t* data, size_t length,
                             std::function<void(int percent, const String& status)> progressCb,
                             uint8_t colors) {
-    if (macAddress.length() == 0 || data == nullptr || length == 0) {
-        if (progressCb) progressCb(0, "参数错误或数据为空");
+    if (macAddress.length() == 0 || data == nullptr || length == 0 || (colors >= 3 && length % 2 != 0)) {
+        if (progressCb) progressCb(0, "参数错误或图像数据长度无效");
         return false;
     }
 
@@ -218,7 +250,11 @@ bool BleEpdClient::pushImage(const String& macAddress, const uint8_t* data, size
     Serial.printf("[BLE] 连接墨水屏: %s\n", macAddress.c_str());
 
     NimBLEClient* pClient = NimBLEDevice::createClient();
-    pClient->setConnectTimeout(8);
+    if (pClient == nullptr) {
+        if (progressCb) progressCb(0, "无法创建蓝牙客户端");
+        return false;
+    }
+    pClient->setConnectTimeout(10);
 
     if (!connectDevice(pClient, macAddress)) {
         Serial.println("[BLE] 连接超时/失败");
@@ -253,39 +289,46 @@ bool BleEpdClient::pushImage(const String& macAddress, const uint8_t* data, size
     // 1. 发送初始化命令 (EPD_CMD_INIT)
     if (progressCb) progressCb(10, "初始化墨水屏驱动...");
     uint8_t initCmd[1] = { EPD_CMD_INIT };
-    pChar->writeValue(initCmd, 1, true);
-    delay(150);
+    if (!pChar->writeValue(initCmd, 1, true) || !pClient->isConnected()) {
+        if (progressCb) progressCb(0, "墨水屏初始化失败");
+        pClient->disconnect();
+        NimBLEDevice::deleteClient(pClient);
+        return false;
+    }
+    delay(200);
 
     // 自动检测固件版本以适配协议标志
-    uint8_t fwVersion = 0x18; // 默认采用绝大多数固件使用的兼容模式 (0x18)
+    uint8_t fwVersion = 0x18; // 默认采用兼容度最高的标准固件 (0x18)
     NimBLERemoteCharacteristic* pVerChar = pSvc->getCharacteristic(NimBLEUUID(EPD_CHAR_VER_UUID));
     if (pVerChar && pVerChar->canRead()) {
         std::string verVal = pVerChar->readValue();
         if (verVal.length() > 0) {
             fwVersion = (uint8_t)verVal[0];
-            Serial.printf("[BLE] 读取到墨水屏固件版本: 0x%02X\n", fwVersion);
         }
     }
-    bool isLegacyProtocol = (fwVersion < 0x1A);
-    Serial.printf("[BLE] 传输协议模式: %s (固件版本 0x%02X)\n",
-                  isLegacyProtocol ? "传统协议 (Legacy V1.5-V1.9)" : "新版协议 (V1.10+ RLE)", fwVersion);
+    Serial.printf("[BLE] 墨水屏固件版本: 0x%02X (%s)\n",
+                  fwVersion, fwVersion >= 0x1A ? "新版协议 V1.10+ RLE" : "兼容协议 V1.5-V1.9");
 
     // 2. 分包发送图像数据
-    size_t chunkSize = (mtu > 30) ? (mtu - 5) : 20;
+    if (mtu <= 5) {
+        if (progressCb) progressCb(0, "蓝牙 MTU 过小");
+        pClient->disconnect();
+        NimBLEDevice::deleteClient(pClient);
+        return false;
+    }
+    size_t chunkSize = mtu - 5;
     if (chunkSize > 240) chunkSize = 240;
 
     // 双通道 (黑白 + 红色) 判定：
     // 优先使用调用方提供的屏幕颜色数，避免纯靠数据长度猜测出错：
-    //   - 2.9"/2.13" 三色屏点阵不足 20000 字节，长度启发式会漏发红通道
-    //   - 7.5"/5.83" 黑白屏点阵超 20000 且为偶数，长度启发式会误拆通道
     bool isDualChannel = (colors != 0) ? (colors >= 3) : (length >= 20000 && length % 2 == 0);
     size_t channelLen = isDualChannel ? (length / 2) : length;
 
-    Serial.printf("[BLE] 数据模式: %s, 单通道大小: %d 字节, 单包: %d 字节\n",
+    Serial.printf("[BLE] 开始推送点阵: %s, 单通道大小: %d 字节, 分包大小: %d 字节\n",
                   isDualChannel ? "三色 (黑白+红)" : "单色 (黑白)", channelLen, chunkSize);
 
     // 发送黑白通道
-    if (!sendChannel(pChar, data, channelLen, false, chunkSize, isLegacyProtocol, 15, isDualChannel ? 55 : 90, progressCb)) {
+    if (!sendChannel(pChar, data, channelLen, false, chunkSize, fwVersion, 15, isDualChannel ? 55 : 90, progressCb)) {
         if (progressCb) progressCb(0, "黑白通道写入失败");
         pClient->disconnect();
         NimBLEDevice::deleteClient(pClient);
@@ -294,9 +337,9 @@ bool BleEpdClient::pushImage(const String& macAddress, const uint8_t* data, size
 
     // 发送红色通道 (如果有)
     if (isDualChannel) {
-        delay(50);
+        delay(100);
         const uint8_t* redData = &data[channelLen];
-        if (!sendChannel(pChar, redData, channelLen, true, chunkSize, isLegacyProtocol, 55, 90, progressCb)) {
+        if (!sendChannel(pChar, redData, channelLen, true, chunkSize, fwVersion, 55, 90, progressCb)) {
             if (progressCb) progressCb(0, "红色通道写入失败");
             pClient->disconnect();
             NimBLEDevice::deleteClient(pClient);
@@ -308,8 +351,13 @@ bool BleEpdClient::pushImage(const String& macAddress, const uint8_t* data, size
     if (progressCb) progressCb(95, "触发屏幕刷新...");
     Serial.println("[BLE] 发送刷新指令 (0x05)");
     uint8_t refreshCmd[1] = { EPD_CMD_REFRESH };
-    pChar->writeValue(refreshCmd, 1, true);
-    delay(200);
+    if (!pChar->writeValue(refreshCmd, 1, true)) {
+        if (progressCb) progressCb(0, "屏幕刷新指令发送失败");
+        pClient->disconnect();
+        NimBLEDevice::deleteClient(pClient);
+        return false;
+    }
+    delay(300);
 
     // 4. 断开连接并释放资源
     pClient->disconnect();
@@ -361,6 +409,7 @@ bool BleEpdClient::setDisplayModeAndTime(const String& macAddress, uint32_t time
     if (progressCb) progressCb(10, "正在连接墨水屏...");
     Serial.printf("[BLE] 设置墨水屏模式: %s, 时间戳: %u, 时区: %d\n", mode == 1 ? "日历模式" : "时钟模式", timestamp, timezone);
     NimBLEClient* pClient = NimBLEDevice::createClient();
+    if (pClient == nullptr) return false;
     pClient->setConnectTimeout(8);
     if (!connectDevice(pClient, macAddress)) {
         Serial.println("[BLE] 连接失败");
@@ -388,7 +437,12 @@ bool BleEpdClient::setDisplayModeAndTime(const String& macAddress, uint32_t time
     if (progressCb) progressCb(25, "唤醒并初始化墨水屏驱动...");
     Serial.println("[BLE] 发送驱动初始化指令 (EPD_CMD_INIT: 0x01)...");
     uint8_t initCmd[1] = { EPD_CMD_INIT };
-    pChar->writeValue(initCmd, 1, true);
+    if (!pChar->writeValue(initCmd, 1, true) || !pClient->isConnected()) {
+        if (progressCb) progressCb(0, "墨水屏初始化失败");
+        pClient->disconnect();
+        NimBLEDevice::deleteClient(pClient);
+        return false;
+    }
     delay(200);
 
     // 3. 发送时间同步与模式切换命令 (EPD_CMD_SET_TIME: 0x20)
@@ -402,7 +456,12 @@ bool BleEpdClient::setDisplayModeAndTime(const String& macAddress, uint32_t time
     packet[5] = timezone; // 8
     packet[6] = mode;     // 1: CALENDAR, 2: CLOCK
 
-    pChar->writeValue(packet, 7, true);
+    if (!pChar->writeValue(packet, 7, true)) {
+        if (progressCb) progressCb(0, "模式与时间指令发送失败");
+        pClient->disconnect();
+        NimBLEDevice::deleteClient(pClient);
+        return false;
+    }
     Serial.println("[BLE] 日历/时钟模式指令已发送，墨水屏开始进入后台图形渲染与屏幕刷新");
 
     // 4. 关键修复 2: 保持蓝牙连接，等待墨水屏执行 DrawGUI 渲染与物理全刷完成 (约18秒)
@@ -414,6 +473,11 @@ bool BleEpdClient::setDisplayModeAndTime(const String& macAddress, uint32_t time
     Serial.println("[BLE] 正在保持蓝牙连接，等待墨水屏完成全屏物理刷新 (安全等待18秒)...");
     for (int i = 0; i < 18; i++) {
         delay(1000);
+        if (!pClient->isConnected()) {
+            if (progressCb) progressCb(0, "刷新期间蓝牙连接断开");
+            NimBLEDevice::deleteClient(pClient);
+            return false;
+        }
         int pct = 45 + (int)((i + 1) * 3.0f);
         if (progressCb && (i % 3 == 0 || i == 17)) {
             progressCb(pct, String("墨水屏全刷中: ") + String(i + 1) + "/18s");

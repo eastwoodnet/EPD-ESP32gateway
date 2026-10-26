@@ -110,7 +110,7 @@ sudo systemctl enable --now epd-server
 |---|---|---|
 | `/screen.bin` | GET | 网关拉取墨水屏点阵核心入口 (支持 ETag 304 缓存) |
 | `/api/push` | POST / GET | 外部推送便签插播 (支持 iPhone 快捷指令或脚本) |
-| `/api/memo/clear` | POST | 提前清除当前便签，恢复正常时段排程 |
+| `/api/push` | DELETE | 提前清除当前便签，恢复正常时段排程 |
 | `/api/memo/status`| GET | 获取当前便签插播状态与剩余时长 |
 | `/api/album/slot/{id}` | POST | 上传并替换卡槽照片 (id: 1 ~ 3) |
 | `/api/schedule` | POST / GET | 24小时自由时段排程规则读写 |

@@ -15,6 +15,7 @@ static bool syncRequested = false;
 static bool syncInProgress = false;
 static unsigned long lastSyncMillis = 0;
 static unsigned long lastUiUpdateMillis = 0;
+static uint32_t nextPullOverrideSec = 0;
 
 #ifdef PIN_BUTTON_1
 static unsigned long btn1PressTime = 0;
@@ -28,11 +29,18 @@ bool startStaMode();
 void performSync();
 void handleSerialCommands();
 
-int getRemainingSec() {
+uint32_t getSyncIntervalSec() {
     AppConfig& cfg = ConfigManager::getInstance().config;
-    if (cfg.refresh_interval == 0) return -1;
+    if (cfg.refresh_interval == 0) return 0;
+    if (nextPullOverrideSec > 0) return nextPullOverrideSec;
+    if (cfg.refresh_interval > 10080) return DEFAULT_REFRESH_MINUTES * 60UL;
+    return cfg.refresh_interval * 60UL;
+}
+
+int getRemainingSec() {
+    uint32_t totalSec = getSyncIntervalSec();
+    if (totalSec == 0) return -1;
     unsigned long elapsedSec = (millis() - lastSyncMillis) / 1000;
-    unsigned long totalSec = cfg.refresh_interval * 60;
     return (totalSec > elapsedSec) ? (int)(totalSec - elapsedSec) : 0;
 }
 
@@ -129,6 +137,7 @@ bool startStaMode() {
 void performSync() {
     if (syncInProgress) return;
     syncInProgress = true;
+    nextPullOverrideSec = 0;
 
     AppConfig& cfg = ConfigManager::getInstance().config;
     Serial.println("\n------------------------------------------");
@@ -138,6 +147,7 @@ void performSync() {
         Serial.println("[Sync] WiFi 未连接，跳过同步");
         cfg.last_sync_status = "WiFi未连接";
         ConfigManager::getInstance().save();
+        lastSyncMillis = millis();
         syncInProgress = false;
         return;
     }
@@ -148,6 +158,7 @@ void performSync() {
         ConfigManager::getInstance().save();
         DisplayUI::getInstance().showToast("未配置图片URL!", 0xFD20);
         delay(1200);
+        lastSyncMillis = millis();
         syncInProgress = false;
         return;
     }
@@ -155,6 +166,9 @@ void performSync() {
     // 1. HTTP 拉取
     DisplayUI::getInstance().showProgress(10, "正在拉取 HTTP 图片数据...");
     HttpPullResponse resp = HttpPuller::fetchImage(cfg.server_url, cfg.auth_token, cfg.token_header, cfg.last_etag);
+    if ((resp.result == PULL_SUCCESS || resp.result == PULL_NOT_MODIFIED) && resp.nextPullSec > 0) {
+        nextPullOverrideSec = resp.nextPullSec;
+    }
 
     if (resp.result == PULL_NOT_MODIFIED) {
         Serial.println("[Sync] 图像数据未改变 (304 Not Modified)");
@@ -164,8 +178,18 @@ void performSync() {
         delay(1000);
     } else if (resp.result == PULL_SUCCESS) {
         Serial.printf("[Sync] HTTP 下载成功，数据大小: %d 字节\n", resp.length);
+        size_t bytesPerRow = (cfg.screen_width + 7UL) / 8UL;
+        size_t expectedLength = bytesPerRow * cfg.screen_height * (cfg.screen_colors >= 3 ? 2UL : 1UL);
+        bool validLength = cfg.screen_colors >= 2 && cfg.screen_colors <= 3 &&
+                           expectedLength > 0 && expectedLength <= 200UL * 1024UL &&
+                           resp.length == expectedLength;
 
-        if (cfg.ble_mac.length() == 0) {
+        if (!validLength) {
+            cfg.last_sync_status = String("图像长度错误，期望 ") + String(expectedLength) + " 字节";
+            ConfigManager::getInstance().save();
+            DisplayUI::getInstance().showProgress(0, cfg.last_sync_status);
+            delay(1200);
+        } else if (cfg.ble_mac.length() == 0) {
             Serial.println("[Sync] 未绑定墨水屏 BLE MAC 地址");
             cfg.last_sync_status = "未绑定墨水屏设备";
             ConfigManager::getInstance().save();
@@ -181,6 +205,15 @@ void performSync() {
                 Serial.println("[Sync] 墨水屏推送与刷新指令执行成功！");
                 cfg.last_etag = resp.newEtag;
                 cfg.last_sync_status = "同步成功";
+                time_t now = time(nullptr);
+                if (now > 1700000000) {
+                    char timeBuf[32];
+                    struct tm* timeinfo = localtime(&now);
+                    strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", timeinfo);
+                    cfg.last_sync_time = String(timeBuf);
+                } else {
+                    cfg.last_sync_time = "刚刚";
+                }
                 ConfigManager::getInstance().save();
                 DisplayUI::getInstance().showProgress(100, "墨水屏刷新成功！");
                 delay(1200);
@@ -213,11 +246,12 @@ void performSync() {
     DisplayUI::getInstance().showDashboard(WiFi.localIP().toString(), displayName, cfg.last_sync_status, getRemainingSec());
 
     // 检查深度睡眠配置
-    if (!isApMode && cfg.enable_deep_sleep && cfg.refresh_interval > 0) {
-        Serial.printf("[Power] 进入 Deep Sleep %d 分钟...\n", cfg.refresh_interval);
+    uint32_t sleepSec = getSyncIntervalSec();
+    if (!isApMode && cfg.enable_deep_sleep && sleepSec > 0) {
+        Serial.printf("[Power] 进入 Deep Sleep %u 秒...\n", sleepSec);
         DisplayUI::getInstance().showToast("进入睡眠模式...", 0x07E0);
         delay(1500);
-        esp_sleep_enable_timer_wakeup((uint64_t)cfg.refresh_interval * 60ULL * 1000000ULL);
+        esp_sleep_enable_timer_wakeup((uint64_t)sleepSec * 1000000ULL);
         #ifdef PIN_BUTTON_1
         #if SOC_PM_SUPPORT_EXT0_WAKEUP
         esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BUTTON_1, 0); // 允许按键唤醒 (ESP32 / ESP32-S3)
@@ -270,6 +304,7 @@ void handleSerialCommands() {
         mac.trim();
         name.trim();
         AppConfig& cfg = ConfigManager::getInstance().config;
+        if (cfg.ble_mac != mac) cfg.last_etag = "";
         cfg.ble_mac = mac;
         cfg.ble_name = name;
         ConfigManager::getInstance().save();
@@ -285,6 +320,7 @@ void handleSerialCommands() {
             if (BleEpdClient::getInstance().setCalendarMode(cfg.ble_mac, 0, 8, [](int pct, const String& msg) {
                 DisplayUI::getInstance().showProgress(pct, msg);
             })) {
+                cfg.last_etag = "";
                 cfg.last_sync_status = "已切至日历模式";
                 ConfigManager::getInstance().save();
                 Serial.println("[BLE] 墨水屏日历模式切换成功！");
@@ -302,6 +338,7 @@ void handleSerialCommands() {
             if (BleEpdClient::getInstance().setClockMode(cfg.ble_mac, 0, 8, [](int pct, const String& msg) {
                 DisplayUI::getInstance().showProgress(pct, msg);
             })) {
+                cfg.last_etag = "";
                 cfg.last_sync_status = "已切至时钟模式";
                 ConfigManager::getInstance().save();
                 Serial.println("[BLE] 墨水屏时钟模式切换成功！");
@@ -316,10 +353,14 @@ void handleSerialCommands() {
         } else {
             Serial.printf("[BLE] 开始向 %s 发送测试图案 (%dx%d, %d色)...\n", 
                           cfg.ble_mac.c_str(), cfg.screen_width, cfg.screen_height, cfg.screen_colors);
-            BleEpdClient::getInstance().sendTestPattern(cfg.ble_mac, cfg.screen_width, cfg.screen_height, cfg.screen_colors, [](int pct, const String& st) {
+            bool ok = BleEpdClient::getInstance().sendTestPattern(cfg.ble_mac, cfg.screen_width, cfg.screen_height, cfg.screen_colors, [](int pct, const String& st) {
                 DisplayUI::getInstance().showProgress(pct, st);
                 Serial.printf("[TestPattern %d%%] %s\n", pct, st.c_str());
             });
+            if (ok) {
+                cfg.last_etag = "";
+                ConfigManager::getInstance().save();
+            }
         }
     } else if (cmd == "clear") {
         AppConfig& cfg = ConfigManager::getInstance().config;
@@ -327,7 +368,10 @@ void handleSerialCommands() {
             Serial.println("[Error] 未绑定墨水屏，请先执行 bind <MAC>");
         } else {
             Serial.printf("[BLE] 正在向 %s 发送清屏指令...\n", cfg.ble_mac.c_str());
-            BleEpdClient::getInstance().clearScreen(cfg.ble_mac);
+            if (BleEpdClient::getInstance().clearScreen(cfg.ble_mac)) {
+                cfg.last_etag = "";
+                ConfigManager::getInstance().save();
+            }
         }
     } else if (cmd.startsWith("screen ")) {
         String model = cmd.substring(7);
@@ -343,10 +387,12 @@ void handleSerialCommands() {
         else if (model == "5.83_bwr") { cfg.screen_width = 648; cfg.screen_height = 480; cfg.screen_colors = 3; }
         else if (model == "7.5_bwr") { cfg.screen_width = 800; cfg.screen_height = 480; cfg.screen_colors = 3; }
         else if (model == "7.5_bw") { cfg.screen_width = 800; cfg.screen_height = 480; cfg.screen_colors = 2; }
+        cfg.last_etag = "";
         ConfigManager::getInstance().save();
         Serial.printf("[Config] 已更新屏幕规格: %s (%dx%d, %d色)\n", 
                       cfg.screen_model.c_str(), cfg.screen_width, cfg.screen_height, cfg.screen_colors);
-    } else if (cmd == "sync") {
+    } else if (cmd == "sync" || cmd == "forcesync") {
+        ConfigManager::getInstance().config.last_etag = ""; // 清空 ETag，强制全量下载并推送墨水屏
         syncRequested = true;
     } else if (cmd.startsWith("wifi ")) {
         String args = cmd.substring(5);
@@ -411,7 +457,8 @@ void setup() {
 
     // 注册 Web 界面远程触发同步回调
     WebPortal::getInstance().setTriggerCallback([]() {
-        Serial.println("[Web] 收到网页手动触发刷新请求");
+        Serial.println("[Web] 收到网页手动触发刷新请求，清空 ETag 强制推屏");
+        ConfigManager::getInstance().config.last_etag = "";
         syncRequested = true;
     });
 
@@ -472,9 +519,9 @@ void loop() {
 
     // 5. 定时拉取检查 (STA 模式下根据 refresh_interval 自动同步)
     if (!isApMode && !syncInProgress) {
-        AppConfig& cfg = ConfigManager::getInstance().config;
-        if (cfg.refresh_interval > 0) {
-            unsigned long intervalMillis = (unsigned long)cfg.refresh_interval * 60UL * 1000UL;
+        uint32_t intervalSec = getSyncIntervalSec();
+        if (intervalSec > 0) {
+            unsigned long intervalMillis = (unsigned long)intervalSec * 1000UL;
             if (millis() - lastSyncMillis >= intervalMillis) {
                 Serial.println("[Timer] 定时器到期，自动触发刷新任务");
                 performSync();

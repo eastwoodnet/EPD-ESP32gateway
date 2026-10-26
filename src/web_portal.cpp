@@ -295,21 +295,38 @@ function startBleScan(){
 
 function renderBleList(devs){
   const el = document.getElementById('ble-list');
+  el.replaceChildren();
   if(!devs || devs.length === 0){
-    el.innerHTML = '<p style="color:var(--sub);font-size:13px;text-align:center;">未发现周边蓝牙设备，请确保墨水屏处于唤醒广播状态</p>';
+    const empty = document.createElement('p');
+    empty.style.cssText = 'color:var(--sub);font-size:13px;text-align:center;';
+    empty.innerText = '未发现周边蓝牙设备，请确保墨水屏处于唤醒广播状态';
+    el.appendChild(empty);
     return;
   }
-  let h = '';
   devs.forEach(d=>{
-    h += `<div class="device-item">
-      <div>
-        <div style="font-weight:600;">${d.name} <span class="badge ${d.is_epd?'badge-epd':'badge-other'}">${d.is_epd?'墨水屏 (EPD)':'其他设备'}</span></div>
-        <div class="dev-meta">MAC: ${d.mac} | 信号: ${d.rssi} dBm</div>
-      </div>
-      <button class="btn" style="width:auto;margin:0;padding:6px 14px;font-size:12px;" onclick="bindBle('${d.mac}','${d.name}')">绑定此设备</button>
-    </div>`;
+    const item = document.createElement('div');
+    item.className = 'device-item';
+    const info = document.createElement('div');
+    const nameRow = document.createElement('div');
+    nameRow.style.fontWeight = '600';
+    const name = document.createElement('span');
+    name.innerText = String(d.name || '未知设备');
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + (d.is_epd ? 'badge-epd' : 'badge-other');
+    badge.innerText = d.is_epd ? '墨水屏 (EPD)' : '其他设备';
+    nameRow.append(name, document.createTextNode(' '), badge);
+    const meta = document.createElement('div');
+    meta.className = 'dev-meta';
+    meta.innerText = 'MAC: ' + d.mac + ' | 信号: ' + d.rssi + ' dBm';
+    info.append(nameRow, meta);
+    const button = document.createElement('button');
+    button.className = 'btn';
+    button.style.cssText = 'width:auto;margin:0;padding:6px 14px;font-size:12px;';
+    button.innerText = '绑定此设备';
+    button.addEventListener('click', ()=>bindBle(d.mac, d.name));
+    item.append(info, button);
+    el.appendChild(item);
   });
-  el.innerHTML = h;
 }
 
 function bindBle(mac, name){
@@ -436,6 +453,19 @@ window.onload = function(){
 </html>
 )rawliteral";
 
+static bool isValidMacAddress(const String& mac) {
+    if (mac.length() != 17) return false;
+    for (uint8_t i = 0; i < 17; i++) {
+        char c = mac.charAt(i);
+        if ((i + 1) % 3 == 0) {
+            if (c != ':') return false;
+        } else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 WebPortal::WebPortal() : server(80) {}
 
 WebPortal& WebPortal::getInstance() {
@@ -498,9 +528,12 @@ void WebPortal::handleRoot() {
 
 void WebPortal::handleApiStatus() {
     AppConfig& cfg = ConfigManager::getInstance().config;
+    String mac = WiFi.macAddress();
+    mac.replace(":", "");
+    String suffix = mac.substring(mac.length() > 4 ? mac.length() - 4 : 0);
     JsonDocument doc;
     doc["ap_mode"] = inApMode;
-    doc["ap_ssid"] = String(DEFAULT_AP_SSID_PREFIX) + WiFi.macAddress().substring(12, 17);
+    doc["ap_ssid"] = String(DEFAULT_AP_SSID_PREFIX) + suffix;
     doc["ip"] = inApMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
     doc["ssid"] = cfg.wifi_ssid;
     doc["ble_mac"] = cfg.ble_mac;
@@ -555,11 +588,21 @@ void WebPortal::handleApiBleBind() {
     }
 
     JsonDocument doc;
-    deserializeJson(doc, server.arg("plain"));
+    if (deserializeJson(doc, server.arg("plain"))) {
+        server.send(400, "application/json", "{\"error\":\"JSON 格式错误\"}");
+        return;
+    }
     String mac = doc["mac"].as<String>();
     String name = doc["name"].as<String>();
+    mac.trim();
+    name.trim();
+    if (!isValidMacAddress(mac) || name.length() > 64) {
+        server.send(400, "application/json", "{\"error\":\"MAC 地址或设备名称无效\"}");
+        return;
+    }
 
     AppConfig& cfg = ConfigManager::getInstance().config;
+    if (cfg.ble_mac != mac) cfg.last_etag = "";
     cfg.ble_mac = mac;
     cfg.ble_name = name;
     ConfigManager::getInstance().save();
@@ -576,6 +619,8 @@ void WebPortal::handleApiBleClear() {
 
     bool ok = BleEpdClient::getInstance().clearScreen(cfg.ble_mac);
     if (ok) {
+        cfg.last_etag = "";
+        ConfigManager::getInstance().save();
         server.send(200, "application/json", "{\"status\":\"ok\",\"msg\":\"清屏指令已发送！墨水屏正在刷新\"}");
     } else {
         server.send(500, "application/json", "{\"error\":\"清屏失败，请检查蓝牙距离或墨水屏状态\"}");
@@ -591,6 +636,8 @@ void WebPortal::handleApiBleTestPattern() {
 
     bool ok = BleEpdClient::getInstance().sendTestPattern(cfg.ble_mac, cfg.screen_width, cfg.screen_height, cfg.screen_colors);
     if (ok) {
+        cfg.last_etag = "";
+        ConfigManager::getInstance().save();
         server.send(200, "application/json", "{\"status\":\"ok\",\"msg\":\"测试画面已发送！墨水屏正在刷新\"}");
     } else {
         server.send(500, "application/json", "{\"error\":\"发送失败，请检查墨水屏连接\"}");
@@ -619,6 +666,7 @@ void WebPortal::handleApiBleCalendar() {
     });
 
     if (ok) {
+        cfg.last_etag = "";
         cfg.last_sync_status = "已切至日历模式";
         ConfigManager::getInstance().save();
         server.send(200, "application/json", "{\"status\":\"ok\",\"msg\":\"日历模式已切换！时间已校准且墨水屏已完成全刷\"}");
@@ -649,6 +697,7 @@ void WebPortal::handleApiBleClock() {
     });
 
     if (ok) {
+        cfg.last_etag = "";
         cfg.last_sync_status = "已切至时钟模式";
         ConfigManager::getInstance().save();
         server.send(200, "application/json", "{\"status\":\"ok\",\"msg\":\"时钟模式已切换！时间已校准且墨水屏已完成全刷\"}");
@@ -664,20 +713,42 @@ void WebPortal::handleApiConfig() {
     }
 
     JsonDocument doc;
-    deserializeJson(doc, server.arg("plain"));
+    if (deserializeJson(doc, server.arg("plain"))) {
+        server.send(400, "application/json", "{\"error\":\"JSON 格式错误\"}");
+        return;
+    }
 
     AppConfig& cfg = ConfigManager::getInstance().config;
-    if (doc["url"].is<String>()) cfg.server_url = doc["url"].as<String>();
-    if (doc["hdr"].is<String>()) cfg.token_header = doc["hdr"].as<String>();
-    if (doc["token"].is<String>()) cfg.auth_token = doc["token"].as<String>();
-    if (doc["interval"].is<uint32_t>()) cfg.refresh_interval = doc["interval"].as<uint32_t>();
-    if (doc["sc_model"].is<String>()) cfg.screen_model = doc["sc_model"].as<String>();
-    if (doc["sc_w"].is<uint16_t>()) cfg.screen_width = doc["sc_w"].as<uint16_t>();
-    if (doc["sc_h"].is<uint16_t>()) cfg.screen_height = doc["sc_h"].as<uint16_t>();
-    if (doc["sc_c"].is<uint8_t>()) cfg.screen_colors = doc["sc_c"].as<uint8_t>();
-    if (doc["mdns"].is<String>()) cfg.mdns_host = doc["mdns"].as<String>();
+    AppConfig newCfg = cfg;
+    if (doc["url"].is<String>()) newCfg.server_url = doc["url"].as<String>();
+    if (doc["hdr"].is<String>()) newCfg.token_header = doc["hdr"].as<String>();
+    if (doc["token"].is<String>()) newCfg.auth_token = doc["token"].as<String>();
+    if (doc["interval"].is<uint32_t>()) newCfg.refresh_interval = doc["interval"].as<uint32_t>();
+    if (doc["sc_model"].is<String>()) newCfg.screen_model = doc["sc_model"].as<String>();
+    if (doc["sc_w"].is<uint16_t>()) newCfg.screen_width = doc["sc_w"].as<uint16_t>();
+    if (doc["sc_h"].is<uint16_t>()) newCfg.screen_height = doc["sc_h"].as<uint16_t>();
+    if (doc["sc_c"].is<uint8_t>()) newCfg.screen_colors = doc["sc_c"].as<uint8_t>();
+    if (doc["mdns"].is<String>()) newCfg.mdns_host = doc["mdns"].as<String>();
 
-    ConfigManager::getInstance().save();
+    size_t bytesPerRow = (newCfg.screen_width + 7UL) / 8UL;
+    size_t frameLength = bytesPerRow * newCfg.screen_height * (newCfg.screen_colors >= 3 ? 2UL : 1UL);
+    if (newCfg.refresh_interval > 10080 || newCfg.screen_width == 0 || newCfg.screen_height == 0 ||
+        (newCfg.screen_colors != 2 && newCfg.screen_colors != 3) || frameLength > 200UL * 1024UL ||
+        newCfg.server_url.length() > 512 || newCfg.token_header.length() > 64 || newCfg.auth_token.length() > 512) {
+        server.send(400, "application/json", "{\"error\":\"配置值超出有效范围\"}");
+        return;
+    }
+    if (newCfg.server_url != cfg.server_url || newCfg.auth_token != cfg.auth_token ||
+        newCfg.token_header != cfg.token_header || newCfg.screen_model != cfg.screen_model ||
+        newCfg.screen_width != cfg.screen_width || newCfg.screen_height != cfg.screen_height ||
+        newCfg.screen_colors != cfg.screen_colors) {
+        newCfg.last_etag = "";
+    }
+    cfg = newCfg;
+    if (!ConfigManager::getInstance().save()) {
+        server.send(500, "application/json", "{\"error\":\"配置写入失败\"}");
+        return;
+    }
     server.send(200, "application/json", "{\"status\":\"ok\",\"msg\":\"配置保存成功！\"}");
 }
 
@@ -688,12 +759,24 @@ void WebPortal::handleApiWifi() {
     }
 
     JsonDocument doc;
-    deserializeJson(doc, server.arg("plain"));
+    if (deserializeJson(doc, server.arg("plain")) || !doc["ssid"].is<String>()) {
+        server.send(400, "application/json", "{\"error\":\"WiFi 配置格式错误\"}");
+        return;
+    }
 
     AppConfig& cfg = ConfigManager::getInstance().config;
-    cfg.wifi_ssid = doc["ssid"].as<String>();
-    cfg.wifi_pass = doc["pass"].as<String>();
-    ConfigManager::getInstance().save();
+    String ssid = doc["ssid"].as<String>();
+    String pass = doc["pass"].as<String>();
+    if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 63) {
+        server.send(400, "application/json", "{\"error\":\"WiFi SSID 或密码长度无效\"}");
+        return;
+    }
+    cfg.wifi_ssid = ssid;
+    cfg.wifi_pass = pass;
+    if (!ConfigManager::getInstance().save()) {
+        server.send(500, "application/json", "{\"error\":\"WiFi 配置写入失败\"}");
+        return;
+    }
 
     String msg = "WiFi 配置已保存，设备即将重启连接！你可以直接在浏览器打开 http://" + cfg.mdns_host + ".local 访问管理后台！";
     JsonDocument resp;

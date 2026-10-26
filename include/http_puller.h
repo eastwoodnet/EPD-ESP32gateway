@@ -20,6 +20,7 @@ struct HttpPullResponse {
     size_t length;
     String newEtag;
     String errorMsg;
+    uint32_t nextPullSec;
 };
 
 class HttpPuller {

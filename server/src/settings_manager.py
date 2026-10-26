@@ -1,6 +1,9 @@
-import os
 import json
+import os
+
 from src.models import ServerSettings
+from persistence import atomic_write_json
+
 
 class SettingsManager:
     def __init__(self, data_dir: str):
@@ -10,19 +13,21 @@ class SettingsManager:
     def _load(self) -> ServerSettings:
         if os.path.exists(self.settings_file):
             try:
-                with open(self.settings_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return ServerSettings(**data)
-            except Exception as e:
-                print(f"[SettingsManager] 读取 settings.json 失败: {e}")
-        s = ServerSettings()
-        self.save(s)
-        return s
+                with open(self.settings_file, "r", encoding="utf-8") as handle:
+                    return ServerSettings(**json.load(handle))
+            except Exception as exc:
+                raise RuntimeError(f"读取 settings.json 失败: {exc}") from exc
+        settings = ServerSettings()
+        atomic_write_json(self.settings_file, settings.model_dump())
+        return settings
 
-    def save(self, settings: ServerSettings):
+    def save(self, settings: ServerSettings) -> None:
+        atomic_write_json(self.settings_file, settings.model_dump())
         self.settings = settings
-        try:
-            with open(self.settings_file, "w", encoding="utf-8") as f:
-                json.dump(settings.model_dump(), f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"[SettingsManager] 保存 settings.json 失败: {e}")
+
+    def update(self, changes: dict) -> ServerSettings:
+        data = self.settings.model_dump()
+        data.update(changes)
+        settings = ServerSettings(**data)
+        self.save(settings)
+        return settings

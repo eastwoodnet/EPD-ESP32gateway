@@ -164,6 +164,29 @@ function atkinsonDither(imageData, strength = 1.0) {
   return imageData;
 }
 
+// 无抖动纯阈值三色量化（与 processImageDataToBinary 阈值严格一致）
+function thresholdDither(imageData) {
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    if (r > 150 && g < 100 && b < 100) {
+      data[i] = 255;
+      data[i + 1] = 0;
+      data[i + 2] = 0;
+    } else {
+      const gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      const v = gray < 128 ? 0 : 255;
+      data[i] = v;
+      data[i + 1] = v;
+      data[i + 2] = v;
+    }
+    data[i + 3] = 255;
+  }
+  return imageData;
+}
+
 // 核心打包函数：将 Canvas ImageData 转为 30,000 字节二进制流 (15,000B 黑白 + 15,000B 红白)
 function processImageDataToBinary(imageData) {
   const width = imageData.width;

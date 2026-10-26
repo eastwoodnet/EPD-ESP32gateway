@@ -1,10 +1,10 @@
 {
   "active": false,
-  "title": "📌 桌面备忘提醒",
-  "text": "欢迎使用墨水屏桌面便签系统！",
-  "created_at": 1790910892.969482,
-  "expire_at": 1790914492.969482,
-  "duration_min": 60,
-  "sender": "智能网关",
+  "title": "",
+  "text": "",
+  "created_at": 0.0,
+  "expire_at": 0.0,
+  "duration_min": 120,
+  "sender": "",
   "theme": "red_alert"
 }
