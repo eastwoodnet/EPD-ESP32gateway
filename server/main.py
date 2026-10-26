@@ -77,7 +77,7 @@ class RequestBodyLimitMiddleware:
             if not sent:
                 sent = True
                 return {"type": "http.request", "body": bytes(body), "more_body": False}
-            return {"type": "http.disconnect"}
+            return await receive()
 
         await self.app(scope, replay_receive, send)
 

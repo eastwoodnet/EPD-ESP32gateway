@@ -461,3 +461,12 @@ class ApiTests(unittest.TestCase):
         preview_resp = self.client.get("/api/calendar/preview.png")
         self.assertEqual(preview_resp.status_code, 200)
         self.assertEqual(preview_resp.headers["content-type"], "image/png")
+
+    def test_static_files_served_completely(self):
+        css_resp = self.client.get("/static/css/style.css")
+        self.assertEqual(css_resp.status_code, 200)
+        self.assertGreater(len(css_resp.content), 1000)
+
+        js_resp = self.client.get("/static/js/app.js")
+        self.assertEqual(js_resp.status_code, 200)
+        self.assertGreater(len(js_resp.content), 1000)
