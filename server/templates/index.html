@@ -4,10 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EPD Backend - 墨水屏数据中继系统</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20261026_v5">
+  <link rel="stylesheet" href="/static/css/style.css?v=20261026_v6">
+  <script>
+    (function() {
+      try {
+        var saved = localStorage.getItem("epd_theme") || "auto";
+        var isDark = saved === "dark" || (saved === "auto" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
-  <!-- 顶部状态栏 (OpenInk Slate-900 暗色顶栏) -->
+  <!-- 顶部状态栏 (自适应日/夜主题顶栏) -->
   <header>
     <div class="header-inner">
       <div class="logo-group">
@@ -17,9 +26,16 @@
           <div class="subtitle">4.2寸三色 (400×300) · 按需零通信排程与即时插播</div>
         </div>
       </div>
-      <div style="display: flex; gap: 10px; align-items: center;">
-        <span class="status-badge" id="activeModeBadge">当前生效: 载入中...</span>
-        <span class="status-badge" id="nextPullBadge">下次刷新: --</span>
+      <div class="header-controls">
+        <div class="status-badges-wrap">
+          <span class="status-badge" id="activeModeBadge">当前生效: 载入中...</span>
+          <span class="status-badge" id="nextPullBadge">下次刷新: --</span>
+        </div>
+        <div class="theme-switcher" id="themeSwitcher" role="group" aria-label="界面主题切换">
+          <button type="button" class="theme-btn" data-theme-pref="auto" title="跟随系统自动切换日间/夜间模式">🌗 自动</button>
+          <button type="button" class="theme-btn" data-theme-pref="light" title="强制使用高对比浅色模式">☀️ 日间</button>
+          <button type="button" class="theme-btn" data-theme-pref="dark" title="强制使用深色护眼模式">🌙 夜间</button>
+        </div>
       </div>
     </div>
   </header>
@@ -94,7 +110,7 @@
             <input type="text" id="newRuleName" placeholder="例如: 下午办公" maxlength="100">
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="time-range-grid">
             <div class="form-group">
               <label for="newRuleStart">开始时间</label>
               <input type="time" id="newRuleStart" value="13:30">
@@ -174,7 +190,7 @@
 
           <div id="saveSlotButtons" style="display: none; flex-direction: column; gap: 8px; margin-top: 20px;">
             <label style="font-weight: 600; color: var(--accent-primary);">保存调优效果至服务器卡槽:</label>
-            <div style="display: flex; gap: 10px;">
+            <div class="action-row">
               <button class="btn btn-primary" style="flex: 1;" onclick="saveCurrentToSlot(1)">存入卡槽 1</button>
               <button class="btn btn-primary" style="flex: 1;" onclick="saveCurrentToSlot(2)">存入卡槽 2</button>
               <button class="btn btn-primary" style="flex: 1;" onclick="saveCurrentToSlot(3)">存入卡槽 3</button>
@@ -211,8 +227,8 @@
     <!-- 标签 3: 桌面即时便签 -->
     <div id="tab-memo" class="tab-content">
       <!-- 当前生效便签 -->
-      <div id="activeMemoCard" class="card" style="display: none; border-color: #fecaca; background: #fef2f2;">
-        <div class="card-title" style="color: var(--accent-red); border-bottom-color: #fee2e2;">
+      <div id="activeMemoCard" class="card active-memo-card" style="display: none;">
+        <div class="card-title">
           <span id="activeMemoTitle">📌 正在置顶展示便签</span>
           <button class="btn btn-red" id="clearMemoBtn" style="padding: 4px 12px; font-size: 13px;">撤回并恢复排程</button>
         </div>
@@ -242,7 +258,7 @@
               <div class="range-wrap">
                 <input type="range" id="memoDurationSlider" min="15" max="720" step="15" value="120">
               </div>
-              <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <div class="action-row" style="margin-top: 8px;">
                 <button type="button" class="btn btn-outline duration-preset" data-min="30" style="padding: 4px 10px; font-size: 11px;">30分钟</button>
                 <button type="button" class="btn btn-outline duration-preset" data-min="60" style="padding: 4px 10px; font-size: 11px;">1小时</button>
                 <button type="button" class="btn btn-outline duration-preset" data-min="120" style="padding: 4px 10px; font-size: 11px;">2小时</button>
@@ -336,7 +352,7 @@
               正在获取日历状态...
             </div>
 
-            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <div class="action-row" style="margin-bottom: 8px;">
               <button class="btn btn-primary" id="saveCalendarBtn" style="flex: 1.2;">保存日历链接</button>
               <button class="btn btn-outline" id="syncCalendarBtn" style="flex: 1;">🔄 立即同步</button>
               <button class="btn btn-outline" id="previewCalendarBtn" style="flex: 1;">🖼️ 预览画面</button>
@@ -384,7 +400,7 @@
 
   </div>
 
-  <script src="/static/js/dithering.js?v=20261026_v5"></script>
-  <script src="/static/js/app.js?v=20261026_v5"></script>
+  <script src="/static/js/dithering.js?v=20261026_v6"></script>
+  <script src="/static/js/app.js?v=20261026_v6"></script>
 </body>
 </html>

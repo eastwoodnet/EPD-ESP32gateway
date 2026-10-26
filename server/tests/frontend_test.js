@@ -110,4 +110,9 @@ assert.deepEqual(smartSorted.map(r => r.id), ["morning", "afternoon", "day", "ni
 const smartConflicts = analyzeRuleConflicts(smartSorted);
 assert.ok(smartConflicts.every(item => item.effectiveMinutes > 0));
 
+// 验证日间/夜间/自动主题解析逻辑
+assert.equal(resolveEffectiveTheme("dark"), "dark");
+assert.equal(resolveEffectiveTheme("light"), "light");
+assert.equal(resolveEffectiveTheme("auto"), "light");
+
 console.log("Frontend tests passed");

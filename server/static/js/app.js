@@ -14,6 +14,7 @@ let memoStatusRequestVersion = 0;
 
 // 初始化
 document.addEventListener("DOMContentLoaded", () => {
+  initTheme();
   initTabs();
   initPhotoStudio();
   loadAlbumSlots();
@@ -30,6 +31,73 @@ document.addEventListener("DOMContentLoaded", () => {
     loadScheduleOverview();
   }, 10000);
 });
+
+// ----------------- 主题切换 (Auto / Light / Dark) -----------------
+function resolveEffectiveTheme(pref) {
+  if (pref === "dark") return "dark";
+  if (pref === "light") return "light";
+  if (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+    return "dark";
+  }
+  return "light";
+}
+
+function applyThemePreference(pref) {
+  const validPref = ["auto", "light", "dark"].includes(pref) ? pref : "auto";
+  const effective = resolveEffectiveTheme(validPref);
+  if (typeof document !== "undefined" && document.documentElement && typeof document.documentElement.setAttribute === "function") {
+    document.documentElement.setAttribute("data-theme", effective);
+  }
+  if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
+    document.querySelectorAll(".theme-btn").forEach(btn => {
+      const btnPref = typeof btn.getAttribute === "function" ? btn.getAttribute("data-theme-pref") : null;
+      if (btnPref === validPref) {
+        btn.classList.add("active");
+      } else if (btn.classList && typeof btn.classList.remove === "function") {
+        btn.classList.remove("active");
+      }
+    });
+  }
+}
+
+function initTheme() {
+  let currentPref = "auto";
+  try {
+    currentPref = localStorage.getItem("epd_theme") || "auto";
+  } catch (e) {}
+  applyThemePreference(currentPref);
+
+  if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
+    document.querySelectorAll(".theme-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const pref = btn.getAttribute("data-theme-pref") || "auto";
+        currentPref = pref;
+        try {
+          localStorage.setItem("epd_theme", pref);
+        } catch (e) {}
+        applyThemePreference(pref);
+      });
+    });
+  }
+
+  if (typeof window !== "undefined" && window.matchMedia) {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystemChange = () => {
+      let saved = "auto";
+      try {
+        saved = localStorage.getItem("epd_theme") || "auto";
+      } catch (e) {}
+      if (saved === "auto") {
+        applyThemePreference("auto");
+      }
+    };
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", onSystemChange);
+    } else if (typeof mediaQuery.addListener === "function") {
+      mediaQuery.addListener(onSystemChange);
+    }
+  }
+}
 
 function formatApiError(data, status) {
   let detail = data && (data.detail || data.message);
@@ -1158,14 +1226,14 @@ async function updateCalendarStatusDisplay() {
     const count = (data.events || []).length;
     const ut = data.update_time || "--:--";
     if (isMock) {
-      statusEl.innerHTML = `<span style="color: #d97706;">⚠️ 未配置 iCal URL，当前展示模拟日程 (共 ${count} 项，更新于 ${ut})</span>`;
+      statusEl.innerHTML = `<span style="color: var(--conflict-partial-text); font-weight: 600;">⚠️ 未配置 iCal URL，当前展示模拟日程 (共 ${count} 项，更新于 ${ut})</span>`;
     } else if (data.status === "error" || data.stale) {
-      statusEl.innerHTML = `<span style="color: #dc2626;">⚠️ 同步异常或展示离线缓存 (共 ${count} 项): ${data.message || "连接受限"}</span>`;
+      statusEl.innerHTML = `<span style="color: var(--conflict-full-text); font-weight: 600;">⚠️ 同步异常或展示离线缓存 (共 ${count} 项): ${data.message || "连接受限"}</span>`;
     } else {
-      statusEl.innerHTML = `<span style="color: #059669;">✅ iCal 已同步 (${data.message || `找到 ${count} 项今日日程`}，更新于 ${ut})</span>`;
+      statusEl.innerHTML = `<span style="color: var(--conflict-ok-text); font-weight: 600;">✅ iCal 已同步 (${data.message || `找到 ${count} 项今日日程`}，更新于 ${ut})</span>`;
     }
   } catch (err) {
-    statusEl.innerHTML = `<span style="color: #dc2626;">❌ 获取日历状态失败: ${err.message}</span>`;
+    statusEl.innerHTML = `<span style="color: var(--conflict-full-text); font-weight: 600;">❌ 获取日历状态失败: ${err.message}</span>`;
   }
 }
 
