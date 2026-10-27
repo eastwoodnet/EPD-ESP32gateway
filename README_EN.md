@@ -11,11 +11,22 @@ A smart, low-power E-Paper display IoT system powered by an **ESP32 intelligent 
 ## Key Features
 
 - **📸 Digital Photo Album**: Supports 3 independent photo slots with configurable rotation intervals (10–1440 min). Built-in Floyd-Steinberg and Atkinson dithering algorithms tailored for 3-color (Black/White/Red) displays.
+- **📅 Online Schedule & Calendar Dashboard (iCal / Webcal)**: Subscribe to Apple Calendar, Google Calendar, or Feishu/Lark ICS feeds to visualize today's agenda and timeline on a 400×300 BWR display.
+- **⛅ Live Weather & Multi-Day Forecast**: Integrated keyless `wttr.in` weather service displaying current temperature, weather conditions, humidity, wind, and forecast.
 - **⏰ 24-Hour Time-Slot Scheduling**: Define custom display rules throughout the day (e.g., Calendar/Clock in the morning, Task/Memo during work hours, Photo Album in the evening, Sleep/DND at night). Seamlessly handles cross-midnight time spans.
 - **🚀 Instant Push Memo (Priority Override)**: Send instant notifications to your e-paper display via iPhone Shortcuts or HTTP POST/GET requests. Supports custom display durations (e.g., 30 minutes), automatically reverting to scheduled tasks upon expiration.
 - **⚡ Dual-Protocol BLE 5.0 Auto-Adaptation**: Automatically inspects firmware version characteristics to support both legacy ESL firmware (v1.5–v1.9 nibble packet flags, e.g., Hema/Hanshow 0x18) and modern v1.10+ RLE compression flags, eliminating screen snow/static corruption caused by unwritten black RAM.
-- **🔋 ETag 304 Smart Caching**: HTTP 304 diff detection skips redundant BLE transmissions when content is unchanged, preserving e-paper battery life and reducing gateway power draw.
+- **🔋 ETag 304 Smart Caching & Zero-Comm DND**: HTTP 304 diff detection skips redundant BLE transmissions when content is unchanged. Night DND retains screen image with zero radio activity to maximize battery life.
 - **📊 Onboard LCD Status Dashboard**: The gateway's 1.9" color LCD displays real-time local IP, Wi-Fi RSSI, BLE connection status, data transfer progress, and countdown to the next pull.
+
+---
+
+## Screen Rendering Preview
+
+| ⛅ Weather Dashboard (wttr.in) | 📅 Today's Agenda (iCal / Webcal) |
+| :---: | :---: |
+| ![Weather Screen Preview](./docs/images/preview_weather.png) | ![Calendar Screen Preview](./docs/images/preview_calendar.png) |
+| *Live weather conditions, humidity, wind, and 3-day forecast* | *Timeline schedule, ongoing event indicator, and event list* |
 
 ---
 
