@@ -295,22 +295,38 @@ class CalendarManager:
             return res
         except Exception as e:
             logger.error(f"拉取 iCal 日历失败: {e}")
-            # 容错：如果有过期缓存，返回旧数据并标记 stale
-            if self._memory_cache and self._memory_cache.get("events"):
-                self._memory_cache["stale"] = True
-                self._memory_cache["message"] = f"拉取失败，展示缓存数据: {e}"
-                return self._memory_cache
+            err_msg = str(e)
+            # 容错：仅当存在同一 URL 的真实历史缓存时，才返回离线旧数据
+            if (
+                self._memory_cache
+                and not self._memory_cache.get("is_mock", False)
+                and self._memory_cache.get("ical_url") == url
+                and self._memory_cache.get("events") is not None
+            ):
+                cached_events = self._memory_cache.get("events", [])
+                return {
+                    "fetched_at": self._memory_cache.get("fetched_at", now_ts),
+                    "today_date": now_date_str,
+                    "ical_url": url,
+                    "is_mock": False,
+                    "stale": True,
+                    "status": "error",
+                    "message": f"同步失败: {err_msg} (当前展示离线缓存)",
+                    "error_detail": err_msg,
+                    "events": cached_events,
+                    "update_time": self._memory_cache.get("update_time", datetime.now().strftime("%H:%M")),
+                }
 
-            # 无任何缓存，降级返回 mock 数据并带错误提示
-            mock_events = self.get_mock_events(date.today())
+            # 无真实有效缓存：真实报告网络失败，空日程，绝不伪造假日程误导用户
             return {
                 "fetched_at": now_ts,
                 "today_date": now_date_str,
                 "ical_url": url,
-                "is_mock": True,
+                "is_mock": False,
                 "stale": True,
                 "status": "error",
-                "message": f"网络拉取失败 ({e})，临时展示模拟日程",
-                "events": mock_events,
+                "message": f"网络拉取失败: {err_msg}",
+                "error_detail": err_msg,
+                "events": [],
                 "update_time": datetime.now().strftime("%H:%M"),
             }

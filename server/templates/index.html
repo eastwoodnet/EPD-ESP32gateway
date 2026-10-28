@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EPD Backend - 墨水屏数据中继系统</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20261026_v6">
+  <link rel="stylesheet" href="/static/css/style.css?v=20261028_v1">
   <script>
     (function() {
       try {
@@ -51,6 +51,16 @@
 
     <!-- 标签 1: 24小时自由排程 -->
     <div id="tab-schedule" class="tab-content active">
+      <!-- 全局日历异常告警条 (仅在日历同步失败时醒目提示) -->
+      <div id="calendarGlobalAlert" class="alert alert-warning" style="display: none; margin-bottom: 16px;">
+        <span style="font-size: 16px;">⚠️</span>
+        <div style="flex: 1;">
+          <b>iCal 在线日历同步异常:</b> <span id="calendarGlobalAlertMsg">连接受限</span>
+          <span style="margin-left: 8px; font-size: 12px; opacity: 0.85;">(可在「系统设置与网关」中重新测试或检查订阅链接)</span>
+        </div>
+        <button type="button" class="btn btn-outline" style="padding: 2px 8px; font-size: 11px;" onclick="document.getElementById('calendarGlobalAlert').style.display='none'">忽略</button>
+      </div>
+
       <div class="card">
         <div class="card-title">
           <span>📊 24小时全天候时间轴可视化</span>
@@ -400,7 +410,7 @@
 
   </div>
 
-  <script src="/static/js/dithering.js?v=20261026_v6"></script>
-  <script src="/static/js/app.js?v=20261026_v6"></script>
+  <script src="/static/js/dithering.js?v=20261028_v1"></script>
+  <script src="/static/js/app.js?v=20261028_v1"></script>
 </body>
 </html>

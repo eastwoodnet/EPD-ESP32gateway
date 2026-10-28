@@ -551,10 +551,19 @@ def render_calendar_image(calendar_data: dict, width: int = 400, height: int = 3
 
     is_mock = calendar_data.get("is_mock", False)
     stale = calendar_data.get("stale", False)
+    status = calendar_data.get("status", "ok")
     ut = calendar_data.get("update_time", now.strftime("%H:%M"))
     total_cnt = len(events)
 
-    if total_cnt == 0:
+    if status == "error":
+        err_detail = calendar_data.get("error_detail") or calendar_data.get("message", "网络连接异常")
+        if total_cnt == 0:
+            status_text = f"● 同步异常({err_detail[:18]}) · 更新于 {ut}"
+        else:
+            status_text = f"● 离线缓存({total_cnt}项) · 同步异常({err_detail[:14]})"
+    elif is_mock:
+        status_text = f"● 模拟日程({total_cnt}项) · 未配置URL · {ut}"
+    elif total_cnt == 0:
         status_text = f"● 今日暂无日程 · 更新于 {ut}"
     elif stale:
         status_text = f"● 今日共 {total_cnt} 项日程 · 更新于 {ut} (离线缓存)"

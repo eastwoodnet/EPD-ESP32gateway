@@ -472,6 +472,18 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(preview_resp.status_code, 200)
         self.assertEqual(preview_resp.headers["content-type"], "image/png")
 
+        # 5. 测试网络拉取失败时不生成假日程
+        with patch("src.calendar_manager.httpx.get", side_effect=Exception("SSL connection reset")):
+            fail_data = cm.fetch_calendar_data(force_refresh=True, custom_url="https://example.com/err.ics")
+            self.assertEqual(fail_data["status"], "error")
+            self.assertEqual(fail_data["is_mock"], False)
+            self.assertEqual(len(fail_data["events"]), 0)
+            self.assertIn("SSL connection reset", fail_data["message"])
+
+            # 渲染画面必须成功，状态栏体现异常信息
+            fail_raw = render_calendar_image(fail_data, 400, 300)
+            self.assertEqual(len(fail_raw), 30000)
+
     def test_static_files_served_completely(self):
         css_resp = self.client.get("/static/css/style.css")
         self.assertEqual(css_resp.status_code, 200)

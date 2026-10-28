@@ -29,6 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setInterval(() => {
     loadMemoStatus();
     loadScheduleOverview();
+    updateCalendarStatusDisplay();
   }, 10000);
 });
 
@@ -1218,22 +1219,48 @@ async function loadMemoStatus() {
 // ----------------- 系统设置与日历/网关联动 -----------------
 async function updateCalendarStatusDisplay() {
   const statusEl = document.getElementById("calendarSyncStatus");
-  if (!statusEl) return;
+  const alertEl = document.getElementById("calendarGlobalAlert");
+  const alertMsgEl = document.getElementById("calendarGlobalAlertMsg");
+
   try {
     const data = await requestJson("/api/calendar");
     if (!data) return;
     const isMock = data.is_mock;
+    const isError = data.status === "error";
+    const stale = data.stale;
     const count = (data.events || []).length;
     const ut = data.update_time || "--:--";
-    if (isMock) {
-      statusEl.innerHTML = `<span style="color: var(--conflict-partial-text); font-weight: 600;">⚠️ 未配置 iCal URL，当前展示模拟日程 (共 ${count} 项，更新于 ${ut})</span>`;
-    } else if (data.status === "error" || data.stale) {
-      statusEl.innerHTML = `<span style="color: var(--conflict-full-text); font-weight: 600;">⚠️ 同步异常或展示离线缓存 (共 ${count} 项): ${data.message || "连接受限"}</span>`;
-    } else {
-      statusEl.innerHTML = `<span style="color: var(--conflict-ok-text); font-weight: 600;">✅ iCal 已同步 (${data.message || `找到 ${count} 项今日日程`}，更新于 ${ut})</span>`;
+
+    // 1. 设置页卡片状态提示
+    if (statusEl) {
+      if (isError) {
+        statusEl.innerHTML = `<span style="color: var(--conflict-full-text); font-weight: 600;">❌ 同步失败: ${data.message || "网络异常"} (更新于 ${ut})</span>`;
+      } else if (isMock) {
+        statusEl.innerHTML = `<span style="color: var(--conflict-partial-text); font-weight: 600;">⚠️ 未配置 iCal URL，当前展示模拟日程 (共 ${count} 项，更新于 ${ut})</span>`;
+      } else if (stale) {
+        statusEl.innerHTML = `<span style="color: var(--conflict-partial-text); font-weight: 600;">⚠️ 展示离线缓存 (共 ${count} 项): ${data.message || "网络受限"}</span>`;
+      } else {
+        statusEl.innerHTML = `<span style="color: var(--conflict-ok-text); font-weight: 600;">✅ iCal 已同步 (${data.message || `找到 ${count} 项今日日程`}，更新于 ${ut})</span>`;
+      }
+    }
+
+    // 2. 主页面 (排程看板) 醒目告警条
+    if (alertEl && alertMsgEl) {
+      if (isError) {
+        alertMsgEl.textContent = data.message || "无法连接到日历服务器";
+        alertEl.style.display = "flex";
+      } else {
+        alertEl.style.display = "none";
+      }
     }
   } catch (err) {
-    statusEl.innerHTML = `<span style="color: var(--conflict-full-text); font-weight: 600;">❌ 获取日历状态失败: ${err.message}</span>`;
+    if (statusEl) {
+      statusEl.innerHTML = `<span style="color: var(--conflict-full-text); font-weight: 600;">❌ 获取日历状态失败: ${err.message}</span>`;
+    }
+    if (alertEl && alertMsgEl) {
+      alertMsgEl.textContent = err.message;
+      alertEl.style.display = "flex";
+    }
   }
 }
 
@@ -1291,7 +1318,12 @@ function initSettingsForm() {
       try {
         const query = icalUrl ? `?url=${encodeURIComponent(icalUrl)}` : "";
         const data = await requestJson(`/api/calendar/refresh${query}`, { method: "POST" });
-        alert(data.message || "日历已同步更新！");
+        if (data.status === "error" || (data.data && data.data.status === "error")) {
+          const errMsg = (data.data && data.data.message) || data.message || "拉取失败";
+          alert(`⚠️ 同步异常: ${errMsg}`);
+        } else {
+          alert(data.message || "日历已同步更新！");
+        }
         await updateCalendarStatusDisplay();
       } catch (err) {
         alert(`日历同步失败: ${err.message}`);
