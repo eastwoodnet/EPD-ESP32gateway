@@ -75,14 +75,16 @@ def raw_to_image(raw_bytes: bytes, width: int = 400, height: int = 300) -> Image
     return img
 
 def clean_text(s: str) -> str:
-    """替换常见 emoji 为优雅符号，避免字体库缺失出现方块"""
+    """替换常见 emoji 为优雅符号，清理换行符与多余空白，避免字体库缺失出现方块或测量报错"""
     s = s.replace("📌", "★ ").replace("⏳", "· ").replace("⚠️", "[提醒] ").replace("🌙", "· ")
-    return s
+    return " ".join(s.split())
 
 
 def fit_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> str:
     if max_width <= 0:
         return ""
+    # 过滤可能残留的换行符或多余空白，防止 Pillow textlength 抛出 can't measure length of multiline text
+    text = " ".join(text.split())
     if draw.textlength(text, font=font) <= max_width:
         return text
     ellipsis = "..."
